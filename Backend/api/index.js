@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const supabase = require('../lib/supabase');
+const requireAuth = require('../middleware/auth');
 const app = express();
 
 app.use(cors({ origin: process.env.FRONTEND_URL }));
@@ -18,6 +19,10 @@ app.get('/api/db-test', async (req, res) => {
   res.json({ connected: true });
 });
 
+// Public routes (login / sign up)
 app.use('/api/auth', require('../routes/auth'));
+
+// Everything below needs a logged-in user
+app.use('/api', requireAuth, require('../routes/data'));
 
 module.exports = app;
