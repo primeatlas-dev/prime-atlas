@@ -1024,7 +1024,7 @@ function LoginPage({ setToken }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const endpoint = isSignUp ? '/api/auth/register' : '/api/auth/login';
+    const endpoint = isSignUp ? '/auth/register' : '/auth/login';
     const body = isSignUp 
       ? { email, password, name }
       : { email, password };

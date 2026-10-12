@@ -18,4 +18,6 @@ app.get('/api/db-test', async (req, res) => {
   res.json({ connected: true });
 });
 
+app.use('/api/auth', require('../routes/auth'));
+
 module.exports = app;
