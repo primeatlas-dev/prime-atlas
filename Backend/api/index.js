@@ -19,10 +19,16 @@ app.get('/api/db-test', async (req, res) => {
   res.json({ connected: true });
 });
 
-// Public routes (login / sign up)
+// Public: login only
 app.use('/api/auth', require('../routes/auth'));
 
-// Everything below needs a logged-in user
+// Logged-in users
+app.get('/api/me', requireAuth, (req, res) => res.json(req.user));
+
+// Manager only (the check happens inside team.js)
+app.use('/api/team', requireAuth, require('../routes/team'));
+
+// Everything else needs a logged-in user
 app.use('/api', requireAuth, require('../routes/data'));
 
 module.exports = app;
