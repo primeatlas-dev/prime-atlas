@@ -8,53 +8,73 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // ==================== MAIN APP ====================
 export default function PrimeAtlasApp() {
-  const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Refresh who the user is (and their role) every time the app loads
   useEffect(() => {
-    if (token) {
-      setUser({ authenticated: true });
-    }
+    if (!token) return;
+    fetch(`${API_URL}/me`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(res => {
+        if (res.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setToken(null);
+          setUser(null);
+          return null;
+        }
+        return res.json();
+      })
+      .then(me => {
+        if (me && me.id) {
+          setUser(me);
+          localStorage.setItem('user', JSON.stringify(me));
+        }
+      })
+      .catch(() => {});
   }, [token]);
 
   if (!token) {
-    return <LoginPage setToken={setToken} />;
+    return <LoginPage setToken={setToken} setUser={setUser} />;
   }
 
   const handleLogout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setToken(null);
+    setUser(null);
   };
+
+  const isManager = user?.role === 'manager';
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <Sidebar 
-        currentPage={currentPage} 
+      <Sidebar
+        currentPage={currentPage}
         setCurrentPage={setCurrentPage}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        isManager={isManager}
       />
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <Header 
+        <Header
           currentPage={currentPage}
           onLogout={handleLogout}
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
+          user={user}
         />
 
-        {/* Page Content */}
         <div className="flex-1 overflow-auto p-6">
           {currentPage === 'dashboard' && <DashboardPage token={token} />}
           {currentPage === 'properties' && <PropertiesPage token={token} />}
           {currentPage === 'buying-agents' && <BuyingAgentsPage token={token} />}
           {currentPage === 'deals' && <DealsPage token={token} />}
           {currentPage === 'communications' && <CommunicationsPage token={token} />}
+          {currentPage === 'team' && isManager && <TeamPage token={token} />}
         </div>
       </div>
     </div>
@@ -62,25 +82,24 @@ export default function PrimeAtlasApp() {
 }
 
 // ==================== SIDEBAR ====================
-function Sidebar({ currentPage, setCurrentPage, sidebarOpen, setSidebarOpen }) {
+function Sidebar({ currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, isManager }) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
     { id: 'properties', label: 'Properties', icon: Home },
     { id: 'buying-agents', label: 'Buying Agents', icon: Users },
     { id: 'deals', label: 'Deals', icon: DollarSign },
     { id: 'communications', label: 'Communications', icon: MessageCircle },
+    ...(isManager ? [{ id: 'team', label: 'Team', icon: Users }] : []),
   ];
 
   return (
     <div className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-gradient-to-b from-blue-900 to-blue-800 text-white transition-all duration-300 flex flex-col`}>
-      {/* Logo */}
       <div className="p-4 border-b border-blue-700 flex items-center justify-center">
         <div className="text-2xl font-bold">
           {sidebarOpen ? 'Prime Atlas' : 'PA'}
         </div>
       </div>
 
-      {/* Menu Items */}
       <nav className="flex-1 p-4 space-y-2">
         {menuItems.map(item => {
           const Icon = item.icon;
@@ -89,8 +108,8 @@ function Sidebar({ currentPage, setCurrentPage, sidebarOpen, setSidebarOpen }) {
               key={item.id}
               onClick={() => setCurrentPage(item.id)}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                currentPage === item.id 
-                  ? 'bg-blue-600 text-white' 
+                currentPage === item.id
+                  ? 'bg-blue-600 text-white'
                   : 'text-blue-100 hover:bg-blue-700'
               }`}
             >
@@ -101,7 +120,6 @@ function Sidebar({ currentPage, setCurrentPage, sidebarOpen, setSidebarOpen }) {
         })}
       </nav>
 
-      {/* Footer */}
       <div className="p-4 border-t border-blue-700">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -115,13 +133,14 @@ function Sidebar({ currentPage, setCurrentPage, sidebarOpen, setSidebarOpen }) {
 }
 
 // ==================== HEADER ====================
-function Header({ currentPage, onLogout, sidebarOpen, setSidebarOpen }) {
+function Header({ currentPage, onLogout, sidebarOpen, setSidebarOpen, user }) {
   const pageNames = {
     dashboard: 'Dashboard',
     properties: 'Properties',
     'buying-agents': 'Buying Agents',
     deals: 'Deals',
-    communications: 'Communications'
+    communications: 'Communications',
+    team: 'Team'
   };
 
   return (
@@ -135,13 +154,172 @@ function Header({ currentPage, onLogout, sidebarOpen, setSidebarOpen }) {
         </button>
         <h1 className="text-2xl font-bold text-gray-800">{pageNames[currentPage]}</h1>
       </div>
-      <button
-        onClick={onLogout}
-        className="flex items-center space-x-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
-      >
-        <LogOut size={18} />
-        <span>Logout</span>
-      </button>
+      <div className="flex items-center space-x-4">
+        {user && (
+          <span className="text-sm text-gray-600">
+            {user.name || user.email} · <span className="capitalize">{user.role}</span>
+          </span>
+        )}
+        <button
+          onClick={onLogout}
+          className="flex items-center space-x-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+        >
+          <LogOut size={18} />
+          <span>Logout</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== TEAM PAGE (MANAGER ONLY) ====================
+function TeamPage({ token }) {
+  const [team, setTeam] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [message, setMessage] = useState('');
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+
+  const loadTeam = async () => {
+    try {
+      const res = await fetch(`${API_URL}/team`, { headers });
+      const data = await res.json();
+      setTeam(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching team:', error);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadTeam();
+  }, []);
+
+  const addEmployee = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    try {
+      const res = await fetch(`${API_URL}/team`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(form)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error || 'Something went wrong');
+        return;
+      }
+      setForm({ name: '', email: '', password: '' });
+      setMessage(`Account created for ${data.name}`);
+      loadTeam();
+    } catch (error) {
+      setMessage('Could not reach the server');
+    }
+  };
+
+  const toggleActive = async (member) => {
+    try {
+      const res = await fetch(`${API_URL}/team/${member.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ active: !member.active })
+      });
+      if (res.ok) {
+        loadTeam();
+      } else {
+        const data = await res.json();
+        setMessage(data.error || 'Something went wrong');
+      }
+    } catch (error) {
+      setMessage('Could not reach the server');
+    }
+  };
+
+  if (loading) return <LoadingSpinner />;
+
+  const inputClass = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <h2 className="text-xl font-bold mb-4">Add Employee</h2>
+        <form onSubmit={addEmployee} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <input
+            className={inputClass}
+            placeholder="Full name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            required
+          />
+          <input
+            className={inputClass}
+            type="email"
+            placeholder="Email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            required
+          />
+          <input
+            className={inputClass}
+            type="password"
+            placeholder="Temporary password (8+ characters)"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            required
+          />
+          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold">
+            Create Account
+          </button>
+        </form>
+        {message && <p className="mt-3 text-sm text-gray-700">{message}</p>}
+      </Card>
+
+      <Card>
+        <h2 className="text-xl font-bold mb-4">Team Members</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-100 border-b border-gray-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Email</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {team.map(member => (
+                <tr key={member.id}>
+                  <td className="px-4 py-3 text-sm">{member.name}</td>
+                  <td className="px-4 py-3 text-sm">{member.email}</td>
+                  <td className="px-4 py-3 text-sm capitalize">{member.role}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      member.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {member.active ? 'Active' : 'Deactivated'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {member.role !== 'manager' && (
+                      <button
+                        onClick={() => toggleActive(member)}
+                        className="text-blue-600 hover:text-blue-800 font-semibold"
+                      >
+                        {member.active ? 'Deactivate' : 'Reactivate'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -1016,32 +1194,31 @@ function LoadingSpinner() {
 }
 
 // ==================== LOGIN PAGE ====================
-function LoginPage({ setToken }) {
+function LoginPage({ setToken, setUser }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [name, setName] = useState('');
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const endpoint = isSignUp ? '/auth/register' : '/auth/login';
-    const body = isSignUp 
-      ? { email, password, name }
-      : { email, password };
-
+    setError('');
     try {
-      const res = await fetch(`${API_URL}${endpoint}`, {
+      const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ email, password })
       });
       const data = await res.json();
       if (data.token) {
         localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setUser(data.user);
         setToken(data.token);
+      } else {
+        setError(data.error || 'Login failed');
       }
-    } catch (error) {
-      console.error('Auth error:', error);
+    } catch (err) {
+      setError('Could not reach the server');
     }
   };
 
@@ -1049,18 +1226,8 @@ function LoginPage({ setToken }) {
     <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-800 flex items-center justify-center">
       <Card className="w-full max-w-md">
         <h1 className="text-3xl font-bold mb-6 text-center">Prime Atlas</h1>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4">
-          {isSignUp && (
-            <input
-              type="text"
-              placeholder="Full Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          )}
           <input
             type="email"
             placeholder="Email"
@@ -1077,22 +1244,17 @@ function LoginPage({ setToken }) {
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
+          {error && <p className="text-red-600 text-sm">{error}</p>}
           <button
             type="submit"
             className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
           >
-            {isSignUp ? 'Sign Up' : 'Login'}
+            Login
           </button>
         </form>
 
-        <p className="text-center text-gray-600 mt-4">
-          {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-          <button
-            onClick={() => setIsSignUp(!isSignUp)}
-            className="text-blue-600 hover:text-blue-800 font-semibold ml-2"
-          >
-            {isSignUp ? 'Login' : 'Sign Up'}
-          </button>
+        <p className="text-center text-gray-500 text-sm mt-4">
+          Accounts are created by your manager.
         </p>
       </Card>
     </div>
