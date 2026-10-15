@@ -10,7 +10,9 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 export default function PrimeAtlasApp() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [currentPage, setCurrentPage] = useState(
+    JSON.parse(localStorage.getItem('user') || 'null')?.role === 'manager' ? 'dashboard' : 'properties'
+  );
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Refresh who the user is (and their role) every time the app loads
@@ -69,11 +71,11 @@ export default function PrimeAtlasApp() {
         />
 
         <div className="flex-1 overflow-auto p-6">
-          {currentPage === 'dashboard' && <DashboardPage token={token} />}
+          {currentPage === 'dashboard' && isManager && <DashboardPage token={token} />}
           {currentPage === 'properties' && <PropertiesPage token={token} />}
-          {currentPage === 'buying-agents' && <BuyingAgentsPage token={token} />}
-          {currentPage === 'deals' && <DealsPage token={token} />}
-          {currentPage === 'communications' && <CommunicationsPage token={token} />}
+          {currentPage === 'buying-agents' && isManager && <BuyingAgentsPage token={token} />}
+          {currentPage === 'deals' && isManager && <DealsPage token={token} />}
+          {currentPage === 'communications' && isManager && <CommunicationsPage token={token} />}
           {currentPage === 'team' && isManager && <TeamPage token={token} />}
         </div>
       </div>
@@ -83,14 +85,16 @@ export default function PrimeAtlasApp() {
 
 // ==================== SIDEBAR ====================
 function Sidebar({ currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, isManager }) {
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
-    { id: 'properties', label: 'Properties', icon: Home },
-    { id: 'buying-agents', label: 'Buying Agents', icon: Users },
-    { id: 'deals', label: 'Deals', icon: DollarSign },
-    { id: 'communications', label: 'Communications', icon: MessageCircle },
-    ...(isManager ? [{ id: 'team', label: 'Team', icon: Users }] : []),
-  ];
+  const menuItems = isManager
+    ? [
+        { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
+        { id: 'properties', label: 'Properties', icon: Home },
+        { id: 'buying-agents', label: 'Buying Agents', icon: Users },
+        { id: 'deals', label: 'Deals', icon: DollarSign },
+        { id: 'communications', label: 'Communications', icon: MessageCircle },
+        { id: 'team', label: 'Team', icon: Users },
+      ]
+    : [{ id: 'properties', label: 'Properties', icon: Home }];
 
   return (
     <div className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-gradient-to-b from-blue-900 to-blue-800 text-white transition-all duration-300 flex flex-col`}>

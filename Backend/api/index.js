@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const supabase = require('../lib/supabase');
 const requireAuth = require('../middleware/auth');
+const { requireManager } = require('../middleware/auth');
 const app = express();
 
 app.use(cors({ origin: process.env.FRONTEND_URL }));
@@ -25,8 +26,11 @@ app.use('/api/auth', require('../routes/auth'));
 // Logged-in users
 app.get('/api/me', requireAuth, (req, res) => res.json(req.user));
 
-// Manager only (the check happens inside team.js)
+// Manager only
 app.use('/api/team', requireAuth, require('../routes/team'));
+app.use('/api/buying-agents', requireAuth, requireManager);
+app.use('/api/deals', requireAuth, requireManager);
+app.use('/api/dashboard', requireAuth, requireManager);
 
 // Everything else needs a logged-in user
 app.use('/api', requireAuth, require('../routes/data'));

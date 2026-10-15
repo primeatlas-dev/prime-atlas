@@ -104,7 +104,7 @@ router.get('/properties/:id', async (req, res) => {
   res.json({
     ...prop.data,
     photos: photos.data || [],
-    deals: (deals.data || []).map(flattenDeal)
+        deals: req.user.role === 'manager' ? (deals.data || []).map(flattenDeal) : []
   });
 });
 
