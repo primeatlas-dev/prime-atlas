@@ -28,7 +28,6 @@ app.get('/api/me', requireAuth, (req, res) => res.json(req.user));
 
 // Manager only
 app.use('/api/team', requireAuth, require('../routes/team'));
-app.use('/api/buying-agents', requireAuth, requireManager);
 app.use('/api/deals', requireAuth, requireManager);
 app.use('/api/dashboard', requireAuth, requireManager);
 
