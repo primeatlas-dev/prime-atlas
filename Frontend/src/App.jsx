@@ -73,9 +73,9 @@ export default function PrimeAtlasApp() {
         <div className="flex-1 overflow-auto p-6">
           {currentPage === 'dashboard' && isManager && <DashboardPage token={token} />}
           {currentPage === 'properties' && <PropertiesPage token={token} />}
-          {currentPage === 'buying-agents' && isManager && <BuyingAgentsPage token={token} />}
+          {currentPage === 'buying-agents' && <BuyingAgentsPage token={token} isManager={isManager} />}
           {currentPage === 'deals' && isManager && <DealsPage token={token} />}
-          {currentPage === 'communications' && isManager && <CommunicationsPage token={token} />}
+          {currentPage === 'communications' && <CommunicationsPage token={token} />}
           {currentPage === 'team' && isManager && <TeamPage token={token} />}
         </div>
       </div>
@@ -85,17 +85,14 @@ export default function PrimeAtlasApp() {
 
 // ==================== SIDEBAR ====================
 function Sidebar({ currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, isManager }) {
-  const menuItems = isManager
-    ? [
-        { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
-        { id: 'properties', label: 'Properties', icon: Home },
-        { id: 'buying-agents', label: 'Buying Agents', icon: Users },
-        { id: 'deals', label: 'Deals', icon: DollarSign },
-        { id: 'communications', label: 'Communications', icon: MessageCircle },
-        { id: 'team', label: 'Team', icon: Users },
-      ]
-    : [{ id: 'properties', label: 'Properties', icon: Home }];
-
+    const menuItems = [
+    ...(isManager ? [{ id: 'dashboard', label: 'Dashboard', icon: TrendingUp }] : []),
+    { id: 'properties', label: 'Properties', icon: Home },
+    { id: 'buying-agents', label: 'Clients', icon: Users },
+    ...(isManager ? [{ id: 'deals', label: 'Deals', icon: DollarSign }] : []),
+    { id: 'communications', label: 'Chats', icon: MessageCircle },
+    ...(isManager ? [{ id: 'team', label: 'Team', icon: Users }] : []),
+  ];
   return (
     <div className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-gradient-to-b from-blue-900 to-blue-800 text-white transition-all duration-300 flex flex-col`}>
       <div className="p-4 border-b border-blue-700 flex items-center justify-center">
@@ -141,9 +138,9 @@ function Header({ currentPage, onLogout, sidebarOpen, setSidebarOpen, user }) {
   const pageNames = {
     dashboard: 'Dashboard',
     properties: 'Properties',
-    'buying-agents': 'Buying Agents',
+    'buying-agents': 'Clients',
     deals: 'Deals',
-    communications: 'Communications',
+    communications: 'Chats',
     team: 'Team'
   };
 
@@ -676,8 +673,9 @@ function PropertyDetail({ token, property, onBack, onUpdate }) {
   );
 }
 
+
 // ==================== BUYING AGENTS PAGE ====================
-function BuyingAgentsPage({ token }) {
+function BuyingAgentsPage({ token, isManager }) {
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -693,12 +691,11 @@ function BuyingAgentsPage({ token }) {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
-      setAgents(data);
-      setLoading(false);
+      setAgents(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching agents:', error);
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   if (loading) return <LoadingSpinner />;
@@ -706,22 +703,24 @@ function BuyingAgentsPage({ token }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <input 
-          type="text" 
-          placeholder="Search buying agents..."
+        <input
+          type="text"
+          placeholder="Search clients..."
           className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mr-4"
         />
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg"
-        >
-          <Plus size={18} />
-          <span>Add Agent</span>
-        </button>
+        {isManager && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg"
+          >
+            <Plus size={18} />
+            <span>Add Client</span>
+          </button>
+        )}
       </div>
 
-      {showForm && (
-        <AgentForm 
+      {isManager && showForm && (
+        <AgentForm
           token={token}
           onClose={() => setShowForm(false)}
           onSave={() => { setShowForm(false); fetchAgents(); }}
@@ -729,33 +728,37 @@ function BuyingAgentsPage({ token }) {
       )}
 
       {selectedAgent ? (
-        <AgentDetail 
+        <AgentDetail
           token={token}
           agent={selectedAgent}
+          isManager={isManager}
           onBack={() => setSelectedAgent(null)}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {agents.map(agent => (
-            <Card 
+            <Card
               key={agent.id}
               onClick={() => setSelectedAgent(agent)}
               className="cursor-pointer hover:shadow-lg transition-shadow"
             >
               <div className="flex justify-between items-start mb-3">
-                <h3 className="font-semibold text-lg text-gray-800">{agent.name}</h3>
+                <div>
+                  <h3 className="font-semibold text-lg text-gray-800">{agent.name}</h3>
+                  {isManager && <p className="text-xs text-gray-500">Client #{agent.client_number}</p>}
+                </div>
                 <span className={`px-2 py-1 rounded text-xs font-semibold ${
                   agent.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                 }`}>
                   {agent.status}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 mb-2">🏢 {agent.company_name}</p>
-              <p className="text-sm text-gray-600 mb-2">📧 {agent.email}</p>
-              <p className="text-sm text-gray-600 mb-2">📱 {agent.phone}</p>
+              {agent.company_name && <p className="text-sm text-gray-600 mb-2">🏢 {agent.company_name}</p>}
+              {agent.email && <p className="text-sm text-gray-600 mb-2">📧 {agent.email}</p>}
+              {agent.phone && <p className="text-sm text-gray-600 mb-2">📱 {agent.phone}</p>}
               {agent.min_price && (
                 <div className="text-sm text-gray-600">
-                  💰 £{agent.min_price?.toLocaleString()} - £{agent.max_price?.toLocaleString()}
+                  💰 £{Number(agent.min_price).toLocaleString()} - £{Number(agent.max_price).toLocaleString()}
                 </div>
               )}
             </Card>
@@ -1074,11 +1077,11 @@ function AgentForm({ token, onClose, onSave }) {
 }
 
 // ==================== AGENT DETAIL ====================
-function AgentDetail({ token, agent, onBack }) {
+function AgentDetail({ token, agent, onBack, isManager }) {
   const [deals, setDeals] = useState([]);
 
   useEffect(() => {
-    fetchAgentDeals();
+    if (isManager) fetchAgentDeals();
   }, [agent.id]);
 
   const fetchAgentDeals = async () => {
@@ -1087,7 +1090,7 @@ function AgentDetail({ token, agent, onBack }) {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
-      setDeals(data);
+      setDeals(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching deals:', error);
     }
@@ -1099,59 +1102,78 @@ function AgentDetail({ token, agent, onBack }) {
         onClick={onBack}
         className="flex items-center space-x-2 text-blue-600 hover:text-blue-800 mb-4"
       >
-        <span>← Back to Agents</span>
+        <span>← Back to Clients</span>
       </button>
 
       <div className="grid grid-cols-3 gap-6">
         <div className="col-span-1">
           <Card>
-            <h2 className="text-2xl font-bold mb-4">{agent.name}</h2>
+            <h2 className="text-2xl font-bold mb-1">{agent.name}</h2>
+            <p className="text-sm text-gray-500 mb-4">Client #{agent.client_number}</p>
             <div className="space-y-4">
-              <div>
-                <p className="text-gray-600 text-sm">Company</p>
-                <p className="font-semibold">{agent.company_name}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Email</p>
-                <p className="font-semibold">{agent.email}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Phone</p>
-                <p className="font-semibold">{agent.phone}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Commission</p>
-                <p className="font-semibold">{agent.commission_percentage}%</p>
-              </div>
+              {agent.company_name && (
+                <div>
+                  <p className="text-gray-600 text-sm">Company</p>
+                  <p className="font-semibold">{agent.company_name}</p>
+                </div>
+              )}
+              {agent.email && (
+                <div>
+                  <p className="text-gray-600 text-sm">Email</p>
+                  <p className="font-semibold">{agent.email}</p>
+                </div>
+              )}
+              {agent.phone && (
+                <div>
+                  <p className="text-gray-600 text-sm">Phone</p>
+                  <p className="font-semibold">{agent.phone}</p>
+                </div>
+              )}
+              {isManager && agent.commission_percentage != null && (
+                <div>
+                  <p className="text-gray-600 text-sm">Commission</p>
+                  <p className="font-semibold">{agent.commission_percentage}%</p>
+                </div>
+              )}
+              {agent.min_price && (
+                <div>
+                  <p className="text-gray-600 text-sm">Budget</p>
+                  <p className="font-semibold">
+                    £{Number(agent.min_price).toLocaleString()} - £{Number(agent.max_price).toLocaleString()}
+                  </p>
+                </div>
+              )}
             </div>
           </Card>
         </div>
 
-        <div className="col-span-2">
-          <Card>
-            <h3 className="text-xl font-bold mb-4">Deal History</h3>
-            <div className="space-y-3">
-              {deals.map(deal => (
-                <div key={deal.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="font-semibold">{deal.property_title}</p>
-                      <p className="text-sm text-gray-600">£{deal.price?.toLocaleString()}</p>
+        {isManager && (
+          <div className="col-span-2">
+            <Card>
+              <h3 className="text-xl font-bold mb-4">Deal History</h3>
+              <div className="space-y-3">
+                {deals.map(deal => (
+                  <div key={deal.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-semibold">{deal.property_title}</p>
+                        <p className="text-sm text-gray-600">£{deal.price?.toLocaleString()}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                        deal.deal_status === 'closed' ? 'bg-green-100 text-green-800' :
+                        deal.deal_status === 'pitched' ? 'bg-blue-100 text-blue-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {deal.deal_status}
+                      </span>
                     </div>
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                      deal.deal_status === 'closed' ? 'bg-green-100 text-green-800' :
-                      deal.deal_status === 'pitched' ? 'bg-blue-100 text-blue-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {deal.deal_status}
-                    </span>
+                    <p className="text-sm">Commission: £{deal.agreed_commission?.toLocaleString()}</p>
                   </div>
-                  <p className="text-sm">Commission: £{deal.agreed_commission?.toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
+const { requireManager } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -113,12 +114,23 @@ router.get('/buying-agents', async (req, res) => {
   const { data, error } = await supabase
     .from('buying_agents')
     .select('*')
-    .order('name');
+    .order('client_number');
   if (error) return fail(res, error);
-  res.json(data);
+
+  if (req.user.role === 'manager') return res.json(data);
+
+  // Employees only ever see the client number
+  res.json(data.map(a => ({
+    id: a.id,
+    client_number: a.client_number,
+    name: `Client ${a.client_number}`,
+    status: a.status,
+    min_price: a.min_price,
+    max_price: a.max_price
+  })));
 });
 
-router.post('/buying-agents', async (req, res) => {
+router.post('/buying-agents', requireManager, async (req, res) => {
   const { data, error } = await supabase
     .from('buying_agents')
     .insert(pick(req.body, AGENT_FIELDS))
