@@ -193,6 +193,7 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
   const [data, setData] = useState(null);
   const [team, setTeam] = useState([]);
   const [showBriefForm, setShowBriefForm] = useState(false);
+  const [openBriefId, setOpenBriefId] = useState(null);
   const [error, setError] = useState('');
   const call = makeCall(token);
 
