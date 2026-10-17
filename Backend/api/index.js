@@ -32,6 +32,6 @@ app.use('/api/deals', requireAuth, requireManager);
 app.use('/api/dashboard', requireAuth, requireManager);
 
 // Everything else needs a logged-in user
-app.use('/api', requireAuth, require('../routes/clients'), require('../routes/data'));
+app.use('/api', requireAuth, require('../routes/clients'), require('../routes/briefs'), require('../routes/data'));
 
 module.exports = app;

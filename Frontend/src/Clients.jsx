@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
-
+import BriefPage from './BriefPage';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const inputClass =
@@ -222,7 +222,19 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
       setError(e.message);
     }
   };
-
+  if (openBriefId) {
+    return (
+      <BriefPage
+        token={token}
+        briefId={openBriefId}
+        isManager={isManager}
+        onBack={() => {
+          setOpenBriefId(null);
+          load();
+        }}
+      />
+    );
+  }
   if (!data) return <p className="text-gray-500">{error || 'Loading…'}</p>;
 
   const { client, briefs } = data;
@@ -285,7 +297,12 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <p className="text-xs text-gray-500">Brief #{b.brief_number}</p>
-                    <h4 className="font-semibold text-lg">{b.title || 'Untitled brief'}</h4>
+                    <h4
+                      className="font-semibold text-lg text-blue-600 hover:underline cursor-pointer"
+                      onClick={() => setOpenBriefId(b.id)}
+                    >
+                      {b.title || 'Untitled brief'}
+                    </h4>
                   </div>
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${STATUS_COLORS[b.status] || ''}`}>
                     {STATUS_LABELS[b.status] || b.status}
