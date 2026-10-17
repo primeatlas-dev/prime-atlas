@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Menu, Plus, Search, Eye, Edit, Trash2, Send, MapPin, Home, DollarSign, Users, TrendingUp, LogOut, ChevronDown, MessageCircle } from 'lucide-react';
-
+import ClientsPage from './Clients';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // ==================== MAIN APP ====================
@@ -73,7 +73,7 @@ export default function PrimeAtlasApp() {
         <div className="flex-1 overflow-auto p-6">
           {currentPage === 'dashboard' && isManager && <DashboardPage token={token} />}
           {currentPage === 'properties' && <PropertiesPage token={token} />}
-          {currentPage === 'buying-agents' && <BuyingAgentsPage token={token} isManager={isManager} />}
+          {currentPage === 'buying-agents' && <ClientsPage token={token} isManager={isManager} />}
           {currentPage === 'deals' && isManager && <DealsPage token={token} />}
           {currentPage === 'communications' && <CommunicationsPage token={token} />}
           {currentPage === 'team' && isManager && <TeamPage token={token} />}
