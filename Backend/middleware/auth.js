@@ -35,5 +35,23 @@ function requireManager(req, res, next) {
   next();
 }
 
+// Managers and employees only. Client accounts are blocked.
+function requireStaff(req, res, next) {
+  if (!['manager', 'employee'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Staff only' });
+  }
+  next();
+}
+
+// Client accounts only (used by the client portal later)
+function requireClient(req, res, next) {
+  if (req.user?.role !== 'client') {
+    return res.status(403).json({ error: 'Clients only' });
+  }
+  next();
+}
+
 module.exports = requireAuth;
 module.exports.requireManager = requireManager;
+module.exports.requireStaff = requireStaff;
+module.exports.requireClient = requireClient;

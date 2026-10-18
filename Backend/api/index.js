@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const supabase = require('../lib/supabase');
 const requireAuth = require('../middleware/auth');
-const { requireManager } = require('../middleware/auth');
+const { requireManager, requireStaff } = require('../middleware/auth');
 const app = express();
 
 app.use(cors({ origin: process.env.FRONTEND_URL }));
@@ -23,7 +23,7 @@ app.get('/api/db-test', async (req, res) => {
 // Public: login only
 app.use('/api/auth', require('../routes/auth'));
 
-// Logged-in users
+// Any logged-in account
 app.get('/api/me', requireAuth, (req, res) => res.json(req.user));
 
 // Manager only
@@ -31,7 +31,15 @@ app.use('/api/team', requireAuth, require('../routes/team'));
 app.use('/api/deals', requireAuth, requireManager);
 app.use('/api/dashboard', requireAuth, requireManager);
 
-// Everything else needs a logged-in user
-app.use('/api', requireAuth, require('../routes/clients'), require('../routes/briefs'), require('../routes/data'));
+// Staff routes (managers and employees). Client accounts are blocked here.
+app.use(
+  '/api',
+  requireAuth,
+  requireStaff,
+  require('../routes/clientLogins'),
+  require('../routes/clients'),
+  require('../routes/briefs'),
+  require('../routes/data')
+);
 
 module.exports = app;

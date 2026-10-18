@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
 import BriefPage from './BriefPage';
+import ClientLogin from './ClientLogin';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const inputClass =
@@ -258,6 +259,7 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
               {client.email && <p>📧 {client.email}</p>}
               {client.phone && <p>📱 {client.phone}</p>}
               {client.notes && <p className="text-gray-600 whitespace-pre-wrap">{client.notes}</p>}
+              <ClientLogin call={call} client={client} />
             </div>
           )}
         </Box>
