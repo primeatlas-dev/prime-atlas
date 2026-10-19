@@ -1,5 +1,6 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
+const { attachCovers } = require('../lib/media');
 const { requireManager } = require('../middleware/auth');
 
 const router = express.Router();
@@ -45,6 +46,7 @@ router.get('/briefs/:id', async (req, res) => {
     supabase.from('users').select('id, name')
   ]);
   if (propsRes.error) return fail(res, propsRes.error);
+    await attachCovers(propsRes.data);
 
   const names = Object.fromEntries((usersRes.data || []).map(u => [u.id, u.name]));
   const client = clientRes.data;

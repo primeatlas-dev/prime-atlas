@@ -38,6 +38,7 @@ app.use(
   requireStaff,
   require('../routes/clientLogins'),
   require('../routes/clients'),
+  require('../routes/propertyPage'),
   require('../routes/briefs'),
   require('../routes/data')
 );

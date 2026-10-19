@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
+import PropertyPage from './PropertyPage';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -41,6 +42,7 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
   const [data, setData] = useState(null);
   const [team, setTeam] = useState([]);
   const [tab, setTab] = useState('properties');
+  const [openPropertyId, setOpenPropertyId] = useState(null);
   const [error, setError] = useState('');
   const call = makeCall(token);
 
@@ -61,6 +63,20 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
         .catch(() => {});
     }
   }, [briefId]);
+
+  if (openPropertyId) {
+    return (
+      <PropertyPage
+        token={token}
+        propertyId={openPropertyId}
+        isManager={isManager}
+        onBack={() => {
+          setOpenPropertyId(null);
+          load();
+        }}
+      />
+    );
+  }
 
   if (!data) {
     return (
@@ -105,7 +121,14 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
       </div>
 
       {tab === 'properties' ? (
-        <PropertiesTab call={call} brief={brief} properties={properties} isManager={isManager} reload={load} />
+        <PropertiesTab
+          call={call}
+          brief={brief}
+          properties={properties}
+          isManager={isManager}
+          reload={load}
+          onOpen={setOpenPropertyId}
+        />
       ) : (
         <DetailsTab call={call} brief={brief} team={team} isManager={isManager} reload={load} />
       )}
@@ -114,30 +137,8 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
 }
 
 // ==================== PROPERTIES INSIDE THE BRIEF ====================
-const PROPERTY_INPUTS = [
-  ['property_title', 'Property title *', 'text'],
-  ['address', 'Address *', 'text'],
-  ['region', 'Suburb / region', 'text'],
-  ['property_type', 'Property type', 'text'],
-  ['price', 'Price, or price from (£)', 'number'],
-  ['price_max', 'Price to (£, optional)', 'number'],
-  ['valuation', 'Valuation (£)', 'number'],
-  ['bedrooms', 'Bedrooms', 'number'],
-  ['bathrooms', 'Bathrooms', 'number'],
-  ['car_parking', 'Car spaces', 'number'],
-  ['plot_size', 'Plot size (m²)', 'number'],
-  ['built_year', 'Built year', 'number'],
-  ['condition', 'Condition', 'text'],
-  ['source', 'Source (e.g. Pre-market)', 'text'],
-  ['sourced_from', 'Sourced from', 'text'],
-  ['selling_agent_name', 'Selling agent name', 'text'],
-  ['selling_agent_phone', 'Selling agent phone', 'text'],
-  ['selling_agent_email', 'Selling agent email', 'email']
-];
-
-function PropertiesTab({ call, brief, properties, isManager, reload }) {
+function PropertiesTab({ call, brief, properties, isManager, reload, onOpen }) {
   const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
 
   const decide = async (p, action) => {
@@ -150,19 +151,11 @@ function PropertiesTab({ call, brief, properties, isManager, reload }) {
     }
   };
 
-  const closeForm = () => {
-    setShowForm(false);
-    setEditing(null);
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
         <button
-          onClick={() => {
-            setEditing(null);
-            setShowForm(true);
-          }}
+          onClick={() => setShowForm(true)}
           className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg"
         >
           <Plus size={18} />
@@ -174,15 +167,13 @@ function PropertiesTab({ call, brief, properties, isManager, reload }) {
 
       {showForm && (
         <PropertyForm
-          key={editing ? editing.id : 'new'}
           call={call}
           briefId={brief.id}
-          initial={editing}
-          isManager={isManager}
-          onClose={closeForm}
-          onSave={() => {
-            closeForm();
+          onClose={() => setShowForm(false)}
+          onSave={(created) => {
+            setShowForm(false);
             reload();
+            onOpen(created.id);
           }}
         />
       )}
@@ -193,19 +184,24 @@ function PropertiesTab({ call, brief, properties, isManager, reload }) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {properties.map((p) => {
             const [label, cls] = APPROVAL[p.approval_status] || [p.approval_status, ''];
-            const photo = p.property_photos?.[0]?.photo_url;
-            const canEdit = isManager || p.approval_status !== 'approved';
             return (
               <Box key={p.id}>
-                {photo ? (
-                  <img src={photo} alt="" className="w-full h-36 object-cover rounded-lg mb-3" />
-                ) : (
-                  <div className="h-36 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-sm mb-3">
-                    No photo yet
-                  </div>
-                )}
+                <div onClick={() => onOpen(p.id)} className="cursor-pointer">
+                  {p.cover_url ? (
+                    <img src={p.cover_url} alt="" className="w-full h-36 object-cover rounded-lg mb-3" />
+                  ) : (
+                    <div className="h-36 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-sm mb-3">
+                      No cover photo yet
+                    </div>
+                  )}
+                </div>
                 <div className="flex justify-between items-start mb-1 gap-2">
-                  <h3 className="font-semibold text-gray-800">{p.property_title}</h3>
+                  <h3
+                    onClick={() => onOpen(p.id)}
+                    className="font-semibold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    {p.property_title}
+                  </h3>
                   <span className={`px-2 py-1 rounded text-xs font-semibold whitespace-nowrap ${cls}`}>{label}</span>
                 </div>
                 <p className="text-sm text-gray-600 mb-2">📍 {p.address}</p>
@@ -233,17 +229,12 @@ function PropertiesTab({ call, brief, properties, isManager, reload }) {
                 )}
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {canEdit && (
-                    <button
-                      onClick={() => {
-                        setEditing(p);
-                        setShowForm(true);
-                      }}
-                      className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-                    >
-                      Edit
-                    </button>
-                  )}
+                  <button
+                    onClick={() => onOpen(p.id)}
+                    className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+                  >
+                    View
+                  </button>
                   {isManager && p.approval_status !== 'approved' && (
                     <button onClick={() => decide(p, 'approve')} className="px-3 py-1 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg">
                       Approve
@@ -269,17 +260,24 @@ function PropertiesTab({ call, brief, properties, isManager, reload }) {
   );
 }
 
-function PropertyForm({ call, briefId, initial, isManager, onClose, onSave }) {
-  const [form, setForm] = useState(() => {
-    const f = {};
-    if (initial) {
-      PROPERTY_INPUTS.forEach(([k]) => {
-        if (initial[k] !== null && initial[k] !== undefined) f[k] = initial[k];
-      });
-      if (isManager) f.client_comment = initial.client_comment || '';
-    }
-    return f;
-  });
+// Quick form: the basics only. Everything else is filled in on the property page.
+const QUICK_INPUTS = [
+  ['property_title', 'Property title *', 'text'],
+  ['address', 'Address *', 'text'],
+  ['region', 'Suburb / region', 'text'],
+  ['source', 'Source (e.g. Pre-market)', 'text'],
+  ['price', 'Price, or price from (£)', 'number'],
+  ['price_max', 'Price to (£, optional)', 'number'],
+  ['bedrooms', 'Bedrooms', 'number'],
+  ['bathrooms', 'Bathrooms', 'number'],
+  ['car_parking', 'Car spaces', 'number'],
+  ['plot_size', 'Plot size (m²)', 'number'],
+  ['selling_agent_name', 'Selling agent name', 'text'],
+  ['selling_agent_phone', 'Selling agent phone', 'text']
+];
+
+function PropertyForm({ call, briefId, onClose, onSave }) {
+  const [form, setForm] = useState({});
   const [error, setError] = useState('');
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -287,12 +285,11 @@ function PropertyForm({ call, briefId, initial, isManager, onClose, onSave }) {
     e.preventDefault();
     setError('');
     try {
-      if (initial) {
-        await call(`/properties/${initial.id}`, { method: 'PATCH', body: JSON.stringify(form) });
-      } else {
-        await call(`/briefs/${briefId}/properties`, { method: 'POST', body: JSON.stringify(form) });
-      }
-      onSave();
+      const created = await call(`/briefs/${briefId}/properties`, {
+        method: 'POST',
+        body: JSON.stringify(form)
+      });
+      onSave(created);
     } catch (err) {
       setError(err.message);
     }
@@ -300,26 +297,23 @@ function PropertyForm({ call, briefId, initial, isManager, onClose, onSave }) {
 
   return (
     <Box>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">{initial ? 'Edit Property' : 'Add Property'}</h2>
+      <div className="flex justify-between items-center mb-1">
+        <h2 className="text-xl font-bold">Add Property</h2>
         <button onClick={onClose} className="text-gray-600 hover:text-gray-800">✕</button>
       </div>
+      <p className="text-sm text-gray-500 mb-4">
+        Start with the basics. After saving, the full property page opens so you can add photos and the rest of the details.
+      </p>
       <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {PROPERTY_INPUTS.map(([key, label, type]) => (
+        {QUICK_INPUTS.map(([key, label, type]) => (
           <div key={key}>
             <label className="text-xs text-gray-600">{label}</label>
             <input className={inputClass} type={type} value={form[key] ?? ''} onChange={set(key)} />
           </div>
         ))}
-        {isManager && initial && (
-          <div className="md:col-span-2">
-            <label className="text-xs text-gray-600">Client comment</label>
-            <textarea className={inputClass} value={form.client_comment ?? ''} onChange={set('client_comment')} />
-          </div>
-        )}
         {error && <p className="text-red-600 text-sm md:col-span-2">{error}</p>}
         <button type="submit" className="md:col-span-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold">
-          Save Property
+          Save and continue
         </button>
       </form>
     </Box>
