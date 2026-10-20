@@ -43,6 +43,7 @@ app.use(
   require('../routes/clients'),
   require('../routes/propertyPage'),
   require('../routes/briefs'),
+  require('../routes/clusters'),
   require('../routes/data')
 );
 

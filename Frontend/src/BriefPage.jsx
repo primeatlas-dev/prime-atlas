@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import PropertyPage from './PropertyPage';
+import ClustersTab from './ClustersTab';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -18,6 +19,11 @@ const APPROVAL = {
   review: ['Review', 'bg-yellow-100 text-yellow-800'],
   approved: ['Approved', 'bg-green-100 text-green-800'],
   rejected: ['Rejected', 'bg-red-100 text-red-800']
+};
+
+const DECISION = {
+  interested: ['Client interested', 'bg-blue-600 text-white'],
+  confirmed: ['Client confirmed', 'bg-green-600 text-white']
 };
 
 const gbp = (n) =>
@@ -95,6 +101,8 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
       tab === name ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'
     }`;
 
+  const chip = 'px-3 py-1 bg-white rounded-lg shadow text-sm';
+
   return (
     <div className="space-y-6">
       <button onClick={onBack} className="text-blue-600 hover:text-blue-800">
@@ -111,25 +119,39 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
         <span className={`px-3 py-1 rounded text-sm font-semibold ${statusClass}`}>{statusLabel}</span>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        <span className={chip}>💰 {gbp(brief.price_min)} – {gbp(brief.price_max)}</span>
+        <span className={chip}>🛏 {brief.bedrooms ?? '—'} · 🛁 {brief.bathrooms ?? '—'} · 🚗 {brief.car_spaces ?? '—'}</span>
+        {brief.min_plot_size && <span className={chip}>📐 min {brief.min_plot_size} m²</span>}
+        {brief.min_yield && <span className={chip}>📈 min yield {brief.min_yield}%</span>}
+        {brief.max_property_age && <span className={chip}>🏠 max {brief.max_property_age} yrs old</span>}
+      </div>
+
       <div className="flex space-x-2 border-b border-gray-200">
         <button className={tabClass('properties')} onClick={() => setTab('properties')}>
           Properties ({properties.length})
+        </button>
+        <button className={tabClass('clusters')} onClick={() => setTab('clusters')}>
+          Clusters
         </button>
         <button className={tabClass('details')} onClick={() => setTab('details')}>
           Brief details
         </button>
       </div>
 
-      {tab === 'properties' ? (
+      {tab === 'properties' && (
         <PropertiesTab
           call={call}
           brief={brief}
+          client={client}
           properties={properties}
           isManager={isManager}
           reload={load}
           onOpen={setOpenPropertyId}
         />
-      ) : (
+      )}
+      {tab === 'clusters' && <ClustersTab call={call} briefId={brief.id} isManager={isManager} />}
+      {tab === 'details' && (
         <DetailsTab call={call} brief={brief} team={team} isManager={isManager} reload={load} />
       )}
     </div>
@@ -137,9 +159,11 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
 }
 
 // ==================== PROPERTIES INSIDE THE BRIEF ====================
-function PropertiesTab({ call, brief, properties, isManager, reload, onOpen }) {
+function PropertiesTab({ call, brief, client, properties, isManager, reload, onOpen }) {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
 
   const decide = async (p, action) => {
     setError('');
@@ -151,9 +175,35 @@ function PropertiesTab({ call, brief, properties, isManager, reload, onOpen }) {
     }
   };
 
+  const q = search.trim().toLowerCase();
+  const shown = properties.filter(
+    (p) =>
+      (filter === 'all' || p.approval_status === filter) &&
+      (!q ||
+        (p.property_title || '').toLowerCase().includes(q) ||
+        (p.address || '').toLowerCase().includes(q) ||
+        (p.region || '').toLowerCase().includes(q))
+  );
+
+  const filters = [
+    ['all', 'All'],
+    ['review', 'Review'],
+    ['approved', 'Approved'],
+    ['rejected', 'Rejected']
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={18} className="absolute left-3 top-3 text-gray-400" />
+          <input
+            className={`${inputClass} pl-10`}
+            placeholder="Search by title, address or suburb..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg"
@@ -161,6 +211,20 @@ function PropertiesTab({ call, brief, properties, isManager, reload, onOpen }) {
           <Plus size={18} />
           <span>Add Property</span>
         </button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {filters.map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setFilter(value)}
+            className={`px-3 py-1 rounded-lg text-sm font-semibold ${
+              filter === value ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
@@ -178,84 +242,122 @@ function PropertiesTab({ call, brief, properties, isManager, reload, onOpen }) {
         />
       )}
 
-      {properties.length === 0 ? (
-        <p className="text-gray-500">No properties for this brief yet.</p>
+      {shown.length === 0 ? (
+        <p className="text-gray-500">
+          {properties.length === 0 ? 'No properties for this brief yet.' : 'No properties match this view.'}
+        </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {properties.map((p) => {
-            const [label, cls] = APPROVAL[p.approval_status] || [p.approval_status, ''];
-            return (
-              <Box key={p.id}>
-                <div onClick={() => onOpen(p.id)} className="cursor-pointer">
-                  {p.cover_url ? (
-                    <img src={p.cover_url} alt="" className="w-full h-36 object-cover rounded-lg mb-3" />
-                  ) : (
-                    <div className="h-36 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-sm mb-3">
-                      No cover photo yet
-                    </div>
-                  )}
-                </div>
-                <div className="flex justify-between items-start mb-1 gap-2">
-                  <h3
-                    onClick={() => onOpen(p.id)}
-                    className="font-semibold text-blue-600 hover:underline cursor-pointer"
-                  >
-                    {p.property_title}
-                  </h3>
-                  <span className={`px-2 py-1 rounded text-xs font-semibold whitespace-nowrap ${cls}`}>{label}</span>
-                </div>
-                <p className="text-sm text-gray-600 mb-2">📍 {p.address}</p>
-                <p className="font-semibold mb-2">
-                  {gbp(p.price)}
-                  {p.price_max ? ` – ${gbp(p.price_max)}` : ''}
-                </p>
-                <p className="text-sm text-gray-600 mb-2">
-                  🛏 {p.bedrooms ?? '—'} · 🛁 {p.bathrooms ?? '—'} · 🚗 {p.car_parking ?? '—'}
-                  {p.plot_size ? ` · ${p.plot_size} m²` : ''}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {p.source || 'Source not set'} · added by {p.created_by_name || 'unknown'} ·{' '}
-                  {new Date(p.created_at).toLocaleDateString()}
-                </p>
-                {p.approval_status === 'approved' && p.approved_by_name && (
-                  <p className="text-xs text-gray-500">Approved by {p.approved_by_name}</p>
-                )}
-
-                {p.client_comment && (
-                  <div className="mt-3 p-2 bg-gray-50 rounded text-sm">
-                    <p className="text-xs text-gray-500">Client comment</p>
-                    <p>{p.client_comment}</p>
-                  </div>
-                )}
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => onOpen(p.id)}
-                    className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-                  >
-                    View
-                  </button>
-                  {isManager && p.approval_status !== 'approved' && (
-                    <button onClick={() => decide(p, 'approve')} className="px-3 py-1 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg">
-                      Approve
-                    </button>
-                  )}
-                  {isManager && p.approval_status !== 'rejected' && (
-                    <button onClick={() => decide(p, 'reject')} className="px-3 py-1 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded-lg">
-                      Reject
-                    </button>
-                  )}
-                  {isManager && p.approval_status !== 'review' && (
-                    <button onClick={() => decide(p, 'review')} className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">
-                      Back to review
-                    </button>
-                  )}
-                </div>
-              </Box>
-            );
-          })}
+          {shown.map((p) => (
+            <PropertyCard
+              key={p.id}
+              p={p}
+              brief={brief}
+              client={client}
+              isManager={isManager}
+              onOpen={onOpen}
+              decide={decide}
+            />
+          ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function PropertyCard({ p, brief, client, isManager, onOpen, decide }) {
+  const [label, cls] = APPROVAL[p.approval_status] || [p.approval_status, ''];
+  const decision = DECISION[p.client_decision];
+
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden flex flex-col">
+      <div className="relative cursor-pointer" onClick={() => onOpen(p.id)}>
+        {p.cover_url ? (
+          <img src={p.cover_url} alt="" className="w-full h-44 object-cover" />
+        ) : (
+          <div className="h-44 bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
+            No cover photo yet
+          </div>
+        )}
+        <span className={`absolute top-2 right-2 px-2 py-1 rounded text-xs font-semibold ${cls}`}>{label}</span>
+        {p.client_decision === 'rejected' && (
+          <span
+            title="Client rejected this property"
+            className="absolute top-2 left-2 w-7 h-7 rounded-full bg-red-600 text-white text-sm flex items-center justify-center shadow"
+          >
+            ✕
+          </span>
+        )}
+        {decision && (
+          <span className={`absolute bottom-2 left-2 px-2 py-1 rounded text-xs font-semibold ${decision[1]}`}>
+            {decision[0]}
+          </span>
+        )}
+      </div>
+
+      <div className="p-4 flex-1 flex flex-col gap-2">
+        <h3
+          onClick={() => onOpen(p.id)}
+          className="font-semibold text-blue-600 hover:underline cursor-pointer"
+        >
+          {p.property_title}
+        </h3>
+        <p className={`text-xs italic ${p.viewed_at ? 'text-green-600' : 'text-gray-400'}`}>
+          {p.viewed_at ? 'viewed by client' : 'not viewed'}
+        </p>
+        <p className="font-semibold">
+          {gbp(p.price)}
+          {p.price_max ? ` – ${gbp(p.price_max)}` : ''}
+        </p>
+
+        <div className="grid grid-cols-4 text-center text-sm text-gray-700 border-y border-gray-100 py-2">
+          <div><p>🛏</p><p className="font-semibold">{p.bedrooms ?? '—'}</p></div>
+          <div><p>🛁</p><p className="font-semibold">{p.bathrooms ?? '—'}</p></div>
+          <div><p>🚗</p><p className="font-semibold">{p.car_parking ?? '—'}</p></div>
+          <div><p>📐</p><p className="font-semibold">{p.plot_size ? `${p.plot_size} m²` : '—'}</p></div>
+        </div>
+
+        <p className="font-semibold underline text-sm">{p.source || 'Source not set'}</p>
+        <p className="text-xs text-gray-500">🕒 {new Date(p.created_at).toLocaleString()}</p>
+        <p className="text-xs text-gray-500">
+          👤 Client {client.client_number} · Brief #{brief.brief_number}
+        </p>
+
+        {p.client_comment && (
+          <div className="p-2 bg-gray-50 border border-gray-200 rounded text-sm">
+            <p className="text-xs font-semibold text-gray-600">Client comment:</p>
+            <p>{p.client_comment}</p>
+          </div>
+        )}
+
+        <div className="mt-auto pt-2 space-y-2">
+          <button
+            onClick={() => onOpen(p.id)}
+            className="w-full px-3 py-2 text-sm border border-blue-600 text-blue-600 hover:bg-blue-50 rounded-lg"
+          >
+            View
+          </button>
+          {isManager && (
+            <div className="flex flex-wrap gap-2">
+              {p.approval_status !== 'approved' && (
+                <button onClick={() => decide(p, 'approve')} className="px-3 py-1 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg">
+                  Approve
+                </button>
+              )}
+              {p.approval_status !== 'rejected' && (
+                <button onClick={() => decide(p, 'reject')} className="px-3 py-1 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded-lg">
+                  Reject
+                </button>
+              )}
+              {p.approval_status !== 'review' && (
+                <button onClick={() => decide(p, 'review')} className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">
+                  Back to review
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
