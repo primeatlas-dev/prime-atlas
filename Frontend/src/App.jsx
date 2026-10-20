@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, Plus, Search, Eye, Edit, Trash2, Send, MapPin, Home, DollarSign, Users, TrendingUp, LogOut, ChevronDown, MessageCircle } from 'lucide-react';
 import ClientsPage from './Clients';
+import ClientPortal from './ClientPortal';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // ==================== MAIN APP ====================
@@ -50,18 +51,8 @@ export default function PrimeAtlasApp() {
   };
 
   const isManager = user?.role === 'manager';
-    if (user?.role === 'client') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-800 flex items-center justify-center">
-        <Card className="w-full max-w-md text-center">
-          <h1 className="text-2xl font-bold mb-2">Prime Atlas</h1>
-          <p className="text-gray-600 mb-4">Your client portal is being set up. Please check back soon.</p>
-          <button onClick={handleLogout} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            Logout
-          </button>
-        </Card>
-      </div>
-    );
+  if (user?.role === 'client') {
+    return <ClientPortal token={token} user={user} onLogout={handleLogout} />;
   }
 
   return (

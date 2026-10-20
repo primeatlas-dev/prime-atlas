@@ -675,3 +675,4 @@ export default function PropertyPage({ token, propertyId, isManager, onBack }) {
     </div>
   );
 }
+export { SECTIONS, AGENT_FIELDS, FieldView, gbp };

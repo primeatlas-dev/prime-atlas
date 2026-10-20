@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const supabase = require('../lib/supabase');
 const requireAuth = require('../middleware/auth');
-const { requireManager, requireStaff } = require('../middleware/auth');
+const { requireManager, requireStaff, requireClient } = require('../middleware/auth');
 const app = express();
 
 app.use(cors({ origin: process.env.FRONTEND_URL }));
@@ -30,6 +30,9 @@ app.get('/api/me', requireAuth, (req, res) => res.json(req.user));
 app.use('/api/team', requireAuth, require('../routes/team'));
 app.use('/api/deals', requireAuth, requireManager);
 app.use('/api/dashboard', requireAuth, requireManager);
+
+// Client portal: client accounts only
+app.use('/api/portal', requireAuth, requireClient, require('../routes/portal'));
 
 // Staff routes (managers and employees). Client accounts are blocked here.
 app.use(
