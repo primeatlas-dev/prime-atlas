@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { Menu, Plus, Search, Eye, Edit, Trash2, Send, MapPin, Home, DollarSign, Users, TrendingUp, LogOut, ChevronDown, MessageCircle } from 'lucide-react';
 import ClientsPage from './Clients';
 import ClientPortal from './ClientPortal';
+import ChatsPage from './ChatsPage';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // ==================== MAIN APP ====================
@@ -79,7 +80,7 @@ export default function PrimeAtlasApp() {
           {currentPage === 'properties' && <PropertiesPage token={token} />}
           {currentPage === 'buying-agents' && <ClientsPage token={token} isManager={isManager} />}
           {currentPage === 'deals' && isManager && <DealsPage token={token} />}
-          {currentPage === 'communications' && <CommunicationsPage token={token} />}
+          {currentPage === 'communications' && <ChatsPage token={token} />}
           {currentPage === 'team' && isManager && <TeamPage token={token} />}
         </div>
       </div>

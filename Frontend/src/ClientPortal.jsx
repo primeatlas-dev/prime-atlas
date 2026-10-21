@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SECTIONS, AGENT_FIELDS, FieldView, gbp } from './PropertyPage';
+import ChatPanel from './ChatPanel';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -425,6 +426,7 @@ function ClientProperty({ call, propertyId, onBack }) {
             {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
           </Box>
 
+          <ChatPanel call={call} basePath={`/portal/properties/${propertyId}/chat`} />
           {location?.url && (
             <Box>
               <p className="font-semibold mb-3">Location</p>
