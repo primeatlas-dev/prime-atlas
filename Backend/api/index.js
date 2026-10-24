@@ -32,7 +32,13 @@ app.use('/api/deals', requireAuth, requireManager);
 app.use('/api/dashboard', requireAuth, requireManager);
 
 // Client portal: client accounts only
-app.use('/api/portal', requireAuth, requireClient, require('../routes/portal'));
+app.use(
+  '/api/portal',
+  requireAuth,
+  requireClient,
+  require('../routes/portal'),
+  require('../routes/portalChat')
+);
 
 // Staff routes (managers and employees). Client accounts are blocked here.
 app.use(
@@ -44,6 +50,7 @@ app.use(
   require('../routes/propertyPage'),
   require('../routes/briefs'),
   require('../routes/clusters'),
+  require('../routes/chat'),
   require('../routes/data')
 );
 
