@@ -3,6 +3,8 @@ import { Plus } from 'lucide-react';
 
 const inputClass =
   'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
+const cellInput =
+  'w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
 
 const LEVELS = {
   high: ['High', 'bg-green-100 text-green-800'],
@@ -16,30 +18,146 @@ function ordinal(n) {
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 }
 
+const gbp = (n) =>
+  n === null || n === undefined || n === '' ? '—' : `£${Number(n).toLocaleString()}`;
+
+function shortMoney(n) {
+  if (n === null || n === undefined || n === '') return '—';
+  const v = Number(n);
+  return v >= 1000 ? `£${+(v / 1000).toFixed(1)}k` : `£${v}`;
+}
+
+const dash = (v) => (v === null || v === undefined || v === '' ? '—' : v);
+const yesNo = (v) => (v === true ? 'Yes' : v === false ? 'No' : '—');
+
 function Box({ children, className = '' }) {
   return <div className={`bg-white rounded-lg shadow p-5 ${className}`}>{children}</div>;
 }
 
-function Chip({ suburb, region, suitability }) {
-  const [, cls] = LEVELS[suitability] || LEVELS.medium;
+function Chip({ suburb, suitability }) {
+  const [label, cls] = LEVELS[suitability] || LEVELS.medium;
   return (
     <span className={`inline-block px-2 py-1 rounded text-xs font-semibold mr-2 mb-2 ${cls}`}>
-      {suburb}
-      {region ? `, ${region}` : ''} ({(LEVELS[suitability] || LEVELS.medium)[0]})
+      {suburb} ({label})
     </span>
   );
 }
 
-export default function ClustersTab({ call, briefId, isManager }) {
+// Read-only table of one cluster's suburbs
+function SuburbTable({ suburbs }) {
+  const th = 'px-3 py-2 text-left font-semibold';
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-100 text-xs text-gray-600">
+          <tr>
+            <th className={th}>Suburb</th>
+            <th className={th}>Matching properties sold (last 3 months)</th>
+            <th className={th}>Matching properties on market</th>
+            <th className={th}>Overlay over 75%</th>
+            <th className={th}>Suitability</th>
+            <th className={th}>Median price</th>
+            <th className={th}>Median yield</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {suburbs.map((s) => {
+            const [label, cls] = LEVELS[s.suitability] || LEVELS.medium;
+            return (
+              <tr key={s.id || s.suburb}>
+                <td className="px-3 py-2 font-semibold">{s.suburb}</td>
+                <td className="px-3 py-2">{dash(s.sold_last_3m)}</td>
+                <td className="px-3 py-2">{dash(s.on_market_count)}</td>
+                <td className="px-3 py-2">{yesNo(s.overlay_over_75)}</td>
+                <td className="px-3 py-2">
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${cls}`}>{label}</span>
+                </td>
+                <td className="px-3 py-2">{shortMoney(s.median_price)}</td>
+                <td className="px-3 py-2">
+                  {s.median_yield === null || s.median_yield === undefined ? '—' : `${s.median_yield}%`}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const emptyRow = () => ({
+  suburb: '',
+  sold_last_3m: '',
+  on_market_count: '',
+  overlay_over_75: '',
+  suitability: 'medium',
+  median_price: '',
+  median_yield: ''
+});
+
+const toRow = (s) => ({
+  suburb: s.suburb,
+  sold_last_3m: s.sold_last_3m ?? '',
+  on_market_count: s.on_market_count ?? '',
+  overlay_over_75: s.overlay_over_75 === true ? 'yes' : s.overlay_over_75 === false ? 'no' : '',
+  suitability: s.suitability,
+  median_price: s.median_price ?? '',
+  median_yield: s.median_yield ?? ''
+});
+
+const PRINT_CSS = `
+#cluster-print { display: none; }
+@media print {
+  body * { visibility: hidden !important; }
+  #cluster-print, #cluster-print * { visibility: visible !important; }
+  #cluster-print { display: block !important; position: absolute; left: 0; top: 0; width: 100%; padding: 16px; }
+}
+`;
+
+// What gets printed / saved as PDF
+function PrintView({ brief, client, clusters }) {
+  return (
+    <div id="cluster-print">
+      <h1 className="text-xl font-bold">Cluster priority: {brief.title || `Brief #${brief.brief_number}`}</h1>
+      <p className="text-sm text-gray-600 mb-2">
+        {client.name} · Brief #{brief.brief_number} · {new Date().toLocaleDateString()}
+      </p>
+      <p className="text-sm mb-4">
+        Budget {gbp(brief.price_min)} – {gbp(brief.price_max)} · {brief.bedrooms ?? '—'} bed /{' '}
+        {brief.bathrooms ?? '—'} bath / {brief.car_spaces ?? '—'} car
+        {brief.min_plot_size ? ` · min plot ${brief.min_plot_size} m²` : ''}
+        {brief.min_yield ? ` · min yield ${brief.min_yield}%` : ''}
+      </p>
+      {clusters.map((c, i) => (
+        <div key={c.id} className="mb-6" style={{ pageBreakInside: 'avoid' }}>
+          <p className="font-bold mb-1">
+            {ordinal(i + 1)} priority · {c.name}
+            {c.state ? ` (${c.state})` : ''}
+          </p>
+          <SuburbTable suburbs={c.cluster_suburbs} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function ClustersTab({ call, brief, client, isManager }) {
+  const briefId = brief.id;
   const [data, setData] = useState(null);
+  const [view, setView] = useState('list');
   const [editor, setEditor] = useState(null);
-  const [error, setError] = useState('');
+  const [order, setOrder] = useState([]);
+  const [search, setSearch] = useState('');
+  const [openId, setOpenId] = useState(null);
   const [bulk, setBulk] = useState('');
-  const [bulkLevel, setBulkLevel] = useState('medium');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const load = async () => {
     try {
-      setData(await call(`/briefs/${briefId}/clusters`));
+      const d = await call(`/briefs/${briefId}/clusters`);
+      setData(d);
+      setOrder(d.clusters.map((c) => c.id));
     } catch (e) {
       setError(e.message);
     }
@@ -53,36 +171,48 @@ export default function ClustersTab({ call, briefId, isManager }) {
 
   const { clusters, status, can_edit } = data;
   const isFinal = status === 'final';
+  const byId = Object.fromEntries(clusters.map((c) => [c.id, c]));
+  const ordered = order.map((id) => byId[id]).filter(Boolean);
 
-  const startNew = () => {
+  const allSuburbs = clusters.flatMap((c) =>
+    c.cluster_suburbs.map((s) => `${s.suburb}${c.state ? ' ' + c.state : ''}`)
+  );
+
+  // ----- navigation -----
+  const goList = () => {
+    setView('list');
+    setEditor(null);
     setError('');
-    setBulk('');
-    setEditor({ id: null, name: '', priority: '', suburbs: [{ suburb: '', region: '', suitability: 'medium' }] });
   };
-
-  const startEdit = (c) => {
+  const goPriority = () => {
+    setOrder(clusters.map((c) => c.id));
+    setView('priority');
+    setEditor(null);
     setError('');
+  };
+  const startNew = () => {
+    setEditor({ id: null, name: '', state: '', suburbs: [emptyRow()] });
     setBulk('');
+    setView('form');
+    setError('');
+  };
+  const startEdit = (c) => {
     setEditor({
       id: c.id,
       name: c.name || '',
-      priority: c.priority,
-      suburbs: c.cluster_suburbs.map((s) => ({
-        suburb: s.suburb,
-        region: s.region || '',
-        suitability: s.suitability
-      }))
+      state: c.state || '',
+      suburbs: c.cluster_suburbs.map(toRow)
     });
+    setBulk('');
+    setView('form');
+    setError('');
   };
 
-  const setSuburb = (i, patch) =>
+  // ----- form helpers -----
+  const setRow = (i, patch) =>
     setEditor({ ...editor, suburbs: editor.suburbs.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
-
-  const removeSuburb = (i) =>
-    setEditor({ ...editor, suburbs: editor.suburbs.filter((_, j) => j !== i) });
-
-  const addSuburb = () =>
-    setEditor({ ...editor, suburbs: [...editor.suburbs, { suburb: '', region: '', suitability: 'medium' }] });
+  const removeRow = (i) => setEditor({ ...editor, suburbs: editor.suburbs.filter((_, j) => j !== i) });
+  const addRow = () => setEditor({ ...editor, suburbs: [...editor.suburbs, emptyRow()] });
 
   const addBulk = () => {
     const names = bulk.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
@@ -90,107 +220,276 @@ export default function ClustersTab({ call, briefId, isManager }) {
     const known = new Set(kept.map((s) => s.suburb.trim().toLowerCase()));
     const fresh = names
       .filter((n) => !known.has(n.toLowerCase()))
-      .map((n) => ({ suburb: n, region: '', suitability: bulkLevel }));
+      .map((n) => ({ ...emptyRow(), suburb: n }));
     setEditor({ ...editor, suburbs: [...kept, ...fresh] });
     setBulk('');
   };
 
-  const save = async () => {
+  const saveCluster = async () => {
     setError('');
-    const body = JSON.stringify({
-      name: editor.name,
-      priority: editor.priority,
-      suburbs: editor.suburbs
-    });
+    setBusy(true);
+    const body = JSON.stringify({ name: editor.name, state: editor.state, suburbs: editor.suburbs });
     try {
       if (editor.id) await call(`/clusters/${editor.id}`, { method: 'PATCH', body });
       else await call(`/briefs/${briefId}/clusters`, { method: 'POST', body });
       setEditor(null);
-      load();
+      setView('list');
+      await load();
     } catch (e) {
       setError(e.message);
     }
+    setBusy(false);
   };
 
-  const remove = async (c) => {
-    if (!window.confirm('Delete this cluster?')) return;
+  const removeCluster = async (c) => {
+    if (!window.confirm(`Delete cluster "${c.name}"?`)) return;
     try {
       await call(`/clusters/${c.id}`, { method: 'DELETE' });
-      load();
+      await load();
     } catch (e) {
       setError(e.message);
     }
   };
 
-  const setStatus = async (value) => {
+  // ----- priority helpers -----
+  const move = (id, position) => {
+    const rest = order.filter((x) => x !== id);
+    rest.splice(position - 1, 0, id);
+    setOrder(rest);
+  };
+
+  const savePriority = async () => {
+    setError('');
+    setBusy(true);
     try {
-      await call(`/briefs/${briefId}/clusters/status`, {
-        method: 'POST',
-        body: JSON.stringify({ status: value })
-      });
-      setEditor(null);
-      load();
+      await call(`/briefs/${briefId}/clusters/order`, { method: 'POST', body: JSON.stringify({ ids: order }) });
+      await call(`/briefs/${briefId}/clusters/status`, { method: 'POST', body: JSON.stringify({ status: 'final' }) });
+      await load();
+      setView('list');
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusy(false);
+  };
+
+  const reopen = async () => {
+    try {
+      await call(`/briefs/${briefId}/clusters/status`, { method: 'POST', body: JSON.stringify({ status: 'draft' }) });
+      await load();
     } catch (e) {
       setError(e.message);
     }
   };
+
+  const pill = (active) =>
+    `px-4 py-2 rounded-lg text-sm font-semibold ${
+      active ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 shadow hover:bg-gray-50'
+    }`;
+
+  const q = search.trim().toLowerCase();
+  const shown = clusters.filter(
+    (c) =>
+      !q ||
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.state || '').toLowerCase().includes(q) ||
+      c.cluster_suburbs.some((s) => s.suburb.toLowerCase().includes(q))
+  );
 
   return (
     <div className="space-y-4">
+      <style>{PRINT_CSS}</style>
+      <PrintView brief={brief} client={client} clusters={clusters} />
+
+      <div className="flex flex-wrap gap-2">
+        <button className={pill(view === 'list')} onClick={goList}>Cluster list</button>
+        <button className={pill(view === 'priority')} onClick={goPriority}>Priority</button>
+        {can_edit && (
+          <button className={pill(view === 'form')} onClick={startNew}>
+            <span className="inline-flex items-center gap-1"><Plus size={14} /> Add cluster</span>
+          </button>
+        )}
+      </div>
+
       <div
-        className={`rounded-lg p-4 text-sm flex flex-wrap items-center justify-between gap-3 ${
+        className={`rounded-lg p-3 text-sm flex flex-wrap items-center justify-between gap-3 ${
           isFinal ? 'bg-green-50 text-green-800' : 'bg-yellow-50 text-yellow-800'
         }`}
       >
         <p>
           {isFinal
             ? 'These clusters are finalised. Only the manager can change them.'
-            : 'These clusters are in draft. Click Finalise when they are ready.'}
+            : 'These clusters are in draft mode. Open Priority and click Generate & Save Priority to finalise.'}
         </p>
-        <div className="flex gap-2">
-          {can_edit && (
-            <button
-              onClick={startNew}
-              className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 rounded-lg"
-            >
-              <Plus size={16} />
-              <span>Add cluster</span>
-            </button>
-          )}
-          {!isFinal && (
-            <button
-              onClick={() => setStatus('final')}
-              className="px-3 py-1 bg-green-600 text-white hover:bg-green-700 rounded-lg"
-            >
-              Finalise clusters
-            </button>
-          )}
-          {isFinal && isManager && (
-            <button
-              onClick={() => setStatus('draft')}
-              className="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 rounded-lg"
-            >
-              Reopen
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-        <span>Suburb suitability:</span>
-        {Object.values(LEVELS).map(([label, cls]) => (
-          <span key={label} className={`px-2 py-1 rounded font-semibold ${cls}`}>{label}</span>
-        ))}
+        {isFinal && isManager && (
+          <button onClick={reopen} className="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 rounded-lg">
+            Reopen
+          </button>
+        )}
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
-      {editor && (
+      {/* ================= LIST ================= */}
+      {view === 'list' && (
+        <>
+          <Box>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+              <div><p className="text-gray-500">Price</p><p className="font-semibold">{gbp(brief.price_min)} – {gbp(brief.price_max)}</p></div>
+              <div><p className="text-gray-500">Min plot size</p><p className="font-semibold">{brief.min_plot_size ? `${brief.min_plot_size} m²` : '—'}</p></div>
+              <div><p className="text-gray-500">Specifications</p><p className="font-semibold">{brief.bedrooms ?? '—'} / {brief.bathrooms ?? '—'} / {brief.car_spaces ?? '—'}</p></div>
+              <div><p className="text-gray-500">Min yield</p><p className="font-semibold">{brief.min_yield ? `${brief.min_yield}%` : '—'}</p></div>
+              <div><p className="text-gray-500">Age of property</p><p className="font-semibold">{brief.max_property_age ?? '—'}</p></div>
+            </div>
+            <p className="text-sm">
+              <span className="text-gray-500">Suburbs:</span>{' '}
+              {allSuburbs.length ? allSuburbs.join(', ') : 'No suburbs yet'}
+            </p>
+          </Box>
+
+          <input
+            className={inputClass}
+            placeholder="Search cluster name / suburbs..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+
+          {clusters.length === 0 ? (
+            <p className="text-gray-500">No clusters yet. Group the suburbs worth searching, then set a priority order.</p>
+          ) : (
+            <Box className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs text-gray-500 uppercase">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Sourcing priority</th>
+                    <th className="px-3 py-2 text-left">Cluster name</th>
+                    <th className="px-3 py-2 text-left">Suburbs</th>
+                    <th className="px-3 py-2 text-left">State</th>
+                    <th className="px-3 py-2 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {shown.map((c) => {
+                    const rank = clusters.indexOf(c) + 1;
+                    const names = c.cluster_suburbs.map((s) => s.suburb);
+                    const open = openId === c.id;
+                    return (
+                      <React.Fragment key={c.id}>
+                        <tr>
+                          <td className="px-3 py-3 font-semibold">{ordinal(rank)}</td>
+                          <td className="px-3 py-3 font-semibold text-blue-600">{c.name || 'Unnamed'}</td>
+                          <td className="px-3 py-3 text-gray-700">
+                            {names.slice(0, 3).join(', ')}
+                            {names.length > 3 ? ` +${names.length - 3} more` : ''}
+                          </td>
+                          <td className="px-3 py-3">{c.state || '—'}</td>
+                          <td className="px-3 py-3">
+                            <div className="flex gap-2">
+                              <button onClick={() => setOpenId(open ? null : c.id)} className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg">
+                                {open ? 'Hide' : 'View'}
+                              </button>
+                              {can_edit && (
+                                <>
+                                  <button onClick={() => startEdit(c)} className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg">Edit</button>
+                                  <button onClick={() => removeCluster(c)} className="px-3 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg">Delete</button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {open && (
+                          <tr>
+                            <td colSpan={5} className="px-3 pb-4 bg-gray-50">
+                              <SuburbTable suburbs={c.cluster_suburbs} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Box>
+          )}
+        </>
+      )}
+
+      {/* ================= PRIORITY ================= */}
+      {view === 'priority' && (
         <Box>
-          <h3 className="text-lg font-bold mb-4">{editor.id ? 'Edit cluster' : 'New cluster'}</h3>
+          <h3 className="text-lg font-bold mb-4">Cluster priority management</h3>
+          {ordered.length === 0 ? (
+            <p className="text-gray-500">Add some clusters first.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs text-gray-500 uppercase">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Cluster</th>
+                    <th className="px-3 py-2 text-left">Suburbs (suitability)</th>
+                    <th className="px-3 py-2 text-left">Sourcing priority</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {ordered.map((c) => (
+                    <tr key={c.id}>
+                      <td className="px-3 py-3 font-semibold align-top">{c.name || 'Unnamed'}</td>
+                      <td className="px-3 py-3">
+                        {c.cluster_suburbs.map((s) => (
+                          <Chip key={s.id} suburb={s.suburb} suitability={s.suitability} />
+                        ))}
+                      </td>
+                      <td className="px-3 py-3 align-top w-40">
+                        <select
+                          className={cellInput}
+                          disabled={!can_edit}
+                          value={order.indexOf(c.id) + 1}
+                          onChange={(e) => move(c.id, Number(e.target.value))}
+                        >
+                          {order.map((_, i) => (
+                            <option key={i} value={i + 1}>{ordinal(i + 1)}</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 mt-4">
+            {can_edit && ordered.length > 0 && (
+              <button
+                onClick={savePriority}
+                disabled={busy}
+                className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg font-semibold disabled:opacity-50"
+              >
+                Generate & Save Priority
+              </button>
+            )}
+            {ordered.length > 0 && (
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-blue-700 text-white hover:bg-blue-800 rounded-lg font-semibold"
+              >
+                Download PDF
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Download PDF opens your print window. Choose “Save as PDF” as the printer.
+          </p>
+        </Box>
+      )}
+
+      {/* ================= ADD / EDIT ================= */}
+      {view === 'form' && editor && (
+        <Box>
+          <h3 className="text-lg font-bold mb-4">{editor.id ? 'Edit cluster' : 'Add new cluster'}</h3>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="text-xs text-gray-600">Cluster name (optional)</label>
+              <label className="text-xs text-gray-600">Cluster name *</label>
               <input
                 className={inputClass}
                 value={editor.name}
@@ -198,122 +497,95 @@ export default function ClustersTab({ call, briefId, isManager }) {
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Sourcing priority (1 = first)</label>
+              <label className="text-xs text-gray-600">State / region</label>
               <input
                 className={inputClass}
-                type="number"
-                min="1"
-                placeholder="Leave empty to add last"
-                value={editor.priority}
-                onChange={(e) => setEditor({ ...editor, priority: e.target.value })}
+                placeholder="e.g. VIC"
+                value={editor.state}
+                onChange={(e) => setEditor({ ...editor, state: e.target.value })}
               />
             </div>
           </div>
 
-          <p className="text-xs text-gray-600 mb-2">Suburbs</p>
-          <div className="space-y-2">
-            {editor.suburbs.map((s, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2">
-                <input
-                  className={`${inputClass} col-span-5`}
-                  placeholder="Suburb"
-                  value={s.suburb}
-                  onChange={(e) => setSuburb(i, { suburb: e.target.value })}
-                />
-                <input
-                  className={`${inputClass} col-span-2`}
-                  placeholder="State"
-                  value={s.region}
-                  onChange={(e) => setSuburb(i, { region: e.target.value })}
-                />
-                <select
-                  className={`${inputClass} col-span-4`}
-                  value={s.suitability}
-                  onChange={(e) => setSuburb(i, { suitability: e.target.value })}
-                >
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-                <button
-                  onClick={() => removeSuburb(i)}
-                  className="col-span-1 text-red-600 hover:bg-red-50 rounded-lg"
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+          <p className="text-xs text-gray-600 mb-2">Suburbs *</p>
+          <div className="overflow-x-auto border border-gray-200 rounded-lg">
+            <table className="w-full text-sm min-w-[1000px]">
+              <thead className="bg-gray-100 text-xs text-gray-600 uppercase">
+                <tr>
+                  <th className="px-2 py-2 text-left">Suburb</th>
+                  <th className="px-2 py-2 text-left">Brief matching properties sold in last 3 months</th>
+                  <th className="px-2 py-2 text-left">Brief matching properties on market as on date</th>
+                  <th className="px-2 py-2 text-left">Suburb majorly covered by any overlay (&gt;75%)</th>
+                  <th className="px-2 py-2 text-left">Brief suitability</th>
+                  <th className="px-2 py-2 text-left">Median price (£)</th>
+                  <th className="px-2 py-2 text-left">Median yield (%)</th>
+                  <th className="px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {editor.suburbs.map((s, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-2 min-w-[160px]">
+                      <input className={cellInput} placeholder="Suburb" value={s.suburb} onChange={(e) => setRow(i, { suburb: e.target.value })} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput} type="number" min="0" value={s.sold_last_3m} onChange={(e) => setRow(i, { sold_last_3m: e.target.value })} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput} type="number" min="0" value={s.on_market_count} onChange={(e) => setRow(i, { on_market_count: e.target.value })} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <select className={cellInput} value={s.overlay_over_75} onChange={(e) => setRow(i, { overlay_over_75: e.target.value })}>
+                        <option value="">Select</option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <select className={cellInput} value={s.suitability} onChange={(e) => setRow(i, { suitability: e.target.value })}>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput} type="number" min="0" value={s.median_price} onChange={(e) => setRow(i, { median_price: e.target.value })} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput} type="number" min="0" step="0.1" value={s.median_yield} onChange={(e) => setRow(i, { median_yield: e.target.value })} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <button onClick={() => removeRow(i)} className="w-8 h-8 bg-red-600 text-white rounded hover:bg-red-700" title="Remove">✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <button onClick={addSuburb} className="mt-2 text-sm text-blue-600 hover:text-blue-800">
-            + Add a suburb
+
+          <button onClick={addRow} className="mt-3 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">
+            + Add suburb
           </button>
 
           <div className="mt-4 p-3 bg-gray-50 rounded-lg">
             <p className="text-xs text-gray-600 mb-2">Or paste several suburbs (one per line, or separated by commas)</p>
-            <textarea
-              className={inputClass}
-              rows={3}
-              value={bulk}
-              onChange={(e) => setBulk(e.target.value)}
-            />
-            <div className="flex gap-2 mt-2">
-              <select className={inputClass} value={bulkLevel} onChange={(e) => setBulkLevel(e.target.value)}>
-                <option value="high">Add as High</option>
-                <option value="medium">Add as Medium</option>
-                <option value="low">Add as Low</option>
-              </select>
-              <button
-                onClick={addBulk}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg whitespace-nowrap"
-              >
-                Add to list
-              </button>
-            </div>
+            <textarea className={inputClass} rows={3} value={bulk} onChange={(e) => setBulk(e.target.value)} />
+            <button onClick={addBulk} className="mt-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+              Add to table
+            </button>
           </div>
 
           <div className="flex gap-2 mt-4">
-            <button onClick={save} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-semibold">
-              Save cluster
-            </button>
-            <button onClick={() => setEditor(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">
-              Cancel
+            <button onClick={goList} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">Back</button>
+            <button
+              onClick={saveCluster}
+              disabled={busy}
+              className="px-4 py-2 bg-blue-700 text-white hover:bg-blue-800 rounded-lg font-semibold disabled:opacity-50"
+            >
+              {editor.id ? 'Update cluster' : 'Add cluster'}
             </button>
           </div>
         </Box>
-      )}
-
-      {clusters.length === 0 && !editor ? (
-        <p className="text-gray-500">No clusters yet. Group the suburbs worth searching, with a priority order.</p>
-      ) : (
-        clusters.map((c, index) => (
-          <Box key={c.id}>
-            <div className="flex justify-between items-start gap-3 mb-3">
-              <div>
-                <p className="text-xs text-gray-500">Sourcing priority</p>
-                <p className="text-lg font-bold">
-                  {ordinal(c.priority)}
-                  <span className="text-gray-500 font-normal text-base"> · {c.name || `Cluster ${index + 1}`}</span>
-                </p>
-              </div>
-              {can_edit && (
-                <div className="flex gap-2">
-                  <button onClick={() => startEdit(c)} className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">
-                    Edit
-                  </button>
-                  <button onClick={() => remove(c)} className="px-3 py-1 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded-lg">
-                    Delete
-                  </button>
-                </div>
-              )}
-            </div>
-            <div>
-              {c.cluster_suburbs.map((s) => (
-                <Chip key={s.id} suburb={s.suburb} region={s.region} suitability={s.suitability} />
-              ))}
-            </div>
-          </Box>
-        ))
       )}
     </div>
   );

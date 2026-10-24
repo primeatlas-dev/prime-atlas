@@ -6,6 +6,9 @@ const fail = (res, error) => res.status(500).json({ error: error.message });
 const isManager = (req) => req.user.role === 'manager';
 const LEVELS = ['high', 'medium', 'low'];
 const RANK = { high: 0, medium: 1, low: 2 };
+const LOCKED = 'Clusters are finalised. Ask the manager to reopen them.';
+const SUBURB_COLUMNS =
+  'id, suburb, suitability, sold_last_3m, on_market_count, overlay_over_75, median_price, median_yield';
 
 // Managers can use any brief. Employees only briefs assigned to them.
 async function loadBrief(req, id) {
@@ -21,23 +24,49 @@ async function loadBrief(req, id) {
 
 // Once finalised, only the manager can change clusters
 const canEdit = (req, brief) => isManager(req) || brief.clusters_status !== 'final';
-const LOCKED = 'Clusters are finalised. Ask the manager to reopen them.';
+
+// Empty -> null. Invalid -> undefined.
+function num(value, { integer = false, max = 1e9 } = {}) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > max) return undefined;
+  return integer ? Math.round(n) : n;
+}
 
 function cleanSuburbs(list) {
-  if (!Array.isArray(list)) return [];
+  if (!Array.isArray(list)) return { list: [] };
   const seen = new Set();
   const out = [];
   for (const s of list.slice(0, 50)) {
     const suburb = String((s && s.suburb) || '').trim().slice(0, 100);
-    if (!suburb || seen.has(suburb.toLowerCase())) continue;
-    seen.add(suburb.toLowerCase());
+    if (!suburb) continue;
+    const key = suburb.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const sold = num(s.sold_last_3m, { integer: true, max: 100000 });
+    const onMarket = num(s.on_market_count, { integer: true, max: 100000 });
+    const price = num(s.median_price, { max: 1e9 });
+    const yld = num(s.median_yield, { max: 100 });
+    if ([sold, onMarket, price, yld].includes(undefined)) {
+      return { error: `Please check the numbers for ${suburb}` };
+    }
+
+    let overlay = null;
+    if (s.overlay_over_75 === 'yes' || s.overlay_over_75 === true) overlay = true;
+    if (s.overlay_over_75 === 'no' || s.overlay_over_75 === false) overlay = false;
+
     out.push({
       suburb,
-      region: String((s && s.region) || '').trim().slice(0, 50) || null,
-      suitability: LEVELS.includes(s.suitability) ? s.suitability : 'medium'
+      suitability: LEVELS.includes(s.suitability) ? s.suitability : 'medium',
+      sold_last_3m: sold,
+      on_market_count: onMarket,
+      overlay_over_75: overlay,
+      median_price: price,
+      median_yield: yld
     });
   }
-  return out;
+  return { list: out };
 }
 
 // ---------- LIST ----------
@@ -47,7 +76,7 @@ router.get('/briefs/:id/clusters', async (req, res) => {
 
   const { data, error } = await supabase
     .from('clusters')
-    .select('id, name, priority, cluster_suburbs(id, suburb, region, suitability)')
+    .select(`id, name, state, priority, cluster_suburbs(${SUBURB_COLUMNS})`)
     .eq('brief_id', brief.id)
     .order('priority');
   if (error) return fail(res, error);
@@ -72,8 +101,13 @@ router.post('/briefs/:id/clusters', async (req, res) => {
   if (!brief) return res.status(404).json({ error: 'Brief not found' });
   if (!canEdit(req, brief)) return res.status(403).json({ error: LOCKED });
 
-  const suburbs = cleanSuburbs(req.body.suburbs);
-  if (suburbs.length === 0) return res.status(400).json({ error: 'Add at least one suburb' });
+  const name = String(req.body.name || '').trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: 'Cluster name is required' });
+  const state = String(req.body.state || '').trim().slice(0, 50) || null;
+
+  const cleaned = cleanSuburbs(req.body.suburbs);
+  if (cleaned.error) return res.status(400).json({ error: cleaned.error });
+  if (cleaned.list.length === 0) return res.status(400).json({ error: 'Add at least one suburb' });
 
   const { data: existing } = await supabase
     .from('clusters')
@@ -83,26 +117,18 @@ router.post('/briefs/:id/clusters', async (req, res) => {
   if ((existing || []).length >= 30) {
     return res.status(400).json({ error: 'A brief can have up to 30 clusters' });
   }
-
-  let priority = parseInt(req.body.priority, 10);
-  if (!Number.isInteger(priority) || priority < 1) {
-    priority = (existing && existing[0] ? existing[0].priority : 0) + 1;
-  }
+  const priority = (existing && existing[0] ? existing[0].priority : 0) + 1;
 
   const { data: cluster, error } = await supabase
     .from('clusters')
-    .insert({
-      brief_id: brief.id,
-      name: String(req.body.name || '').trim().slice(0, 60) || null,
-      priority
-    })
+    .insert({ brief_id: brief.id, name, state, priority })
     .select()
     .single();
   if (error) return fail(res, error);
 
   const { error: subError } = await supabase
     .from('cluster_suburbs')
-    .insert(suburbs.map((s) => ({ ...s, cluster_id: cluster.id })));
+    .insert(cleaned.list.map((s) => ({ ...s, cluster_id: cluster.id })));
   if (subError) {
     await supabase.from('clusters').delete().eq('id', cluster.id);
     return fail(res, subError);
@@ -123,20 +149,25 @@ router.patch('/clusters/:id', async (req, res) => {
   if (!brief) return res.status(404).json({ error: 'Cluster not found' });
   if (!canEdit(req, brief)) return res.status(403).json({ error: LOCKED });
 
-  let suburbs = null;
-  if (req.body.suburbs !== undefined) {
-    suburbs = cleanSuburbs(req.body.suburbs);
-    if (suburbs.length === 0) {
-      return res.status(400).json({ error: 'A cluster needs at least one suburb' });
-    }
-  }
-
   const updates = {};
   if (req.body.name !== undefined) {
-    updates.name = String(req.body.name).trim().slice(0, 60) || null;
+    const name = String(req.body.name).trim().slice(0, 60);
+    if (!name) return res.status(400).json({ error: 'Cluster name is required' });
+    updates.name = name;
   }
-  const priority = parseInt(req.body.priority, 10);
-  if (Number.isInteger(priority) && priority >= 1) updates.priority = priority;
+  if (req.body.state !== undefined) {
+    updates.state = String(req.body.state).trim().slice(0, 50) || null;
+  }
+
+  let suburbs = null;
+  if (req.body.suburbs !== undefined) {
+    const cleaned = cleanSuburbs(req.body.suburbs);
+    if (cleaned.error) return res.status(400).json({ error: cleaned.error });
+    if (cleaned.list.length === 0) {
+      return res.status(400).json({ error: 'A cluster needs at least one suburb' });
+    }
+    suburbs = cleaned.list;
+  }
 
   if (Object.keys(updates).length) {
     const { error } = await supabase.from('clusters').update(updates).eq('id', cluster.id);
@@ -175,6 +206,29 @@ router.delete('/clusters/:id', async (req, res) => {
 
   const { error } = await supabase.from('clusters').delete().eq('id', cluster.id);
   if (error) return fail(res, error);
+  res.json({ ok: true });
+});
+
+// ---------- SAVE THE SOURCING PRIORITY ORDER ----------
+router.post('/briefs/:id/clusters/order', async (req, res) => {
+  const brief = await loadBrief(req, req.params.id);
+  if (!brief) return res.status(404).json({ error: 'Brief not found' });
+  if (!canEdit(req, brief)) return res.status(403).json({ error: LOCKED });
+
+  const ids = req.body.ids;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'Send the list of clusters in order' });
+
+  const { data: existing } = await supabase.from('clusters').select('id').eq('brief_id', brief.id);
+  const have = new Set((existing || []).map((c) => c.id));
+  if (ids.length !== have.size || new Set(ids).size !== ids.length || !ids.every((id) => have.has(id))) {
+    return res.status(400).json({ error: 'The cluster list has changed. Please reload and try again.' });
+  }
+
+  const results = await Promise.all(
+    ids.map((id, i) => supabase.from('clusters').update({ priority: i + 1 }).eq('id', id))
+  );
+  const failed = results.find((r) => r.error);
+  if (failed) return fail(res, failed.error);
   res.json({ ok: true });
 });
 

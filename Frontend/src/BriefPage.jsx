@@ -150,7 +150,7 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
           onOpen={setOpenPropertyId}
         />
       )}
-      {tab === 'clusters' && <ClustersTab call={call} briefId={brief.id} isManager={isManager} />}
+      {tab === 'clusters' && <ClustersTab call={call} brief={brief} client={client} isManager={isManager} />}
       {tab === 'details' && (
         <DetailsTab call={call} brief={brief} team={team} isManager={isManager} reload={load} />
       )}
