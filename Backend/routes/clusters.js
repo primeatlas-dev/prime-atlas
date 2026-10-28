@@ -1,11 +1,11 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
+const { rankClusters } = require('../lib/clusterScore');
 
 const router = express.Router();
 const fail = (res, error) => res.status(500).json({ error: error.message });
 const isManager = (req) => req.user.role === 'manager';
 const LEVELS = ['high', 'medium', 'low'];
-const RANK = { high: 0, medium: 1, low: 2 };
 const LOCKED = 'Clusters are finalised. Ask the manager to reopen them.';
 const SUBURB_COLUMNS =
   'id, suburb, suitability, sold_last_3m, on_market_count, overlay_over_75, median_price, median_yield';
@@ -14,7 +14,7 @@ const SUBURB_COLUMNS =
 async function loadBrief(req, id) {
   const { data: brief } = await supabase
     .from('briefs')
-    .select('id, assigned_to, clusters_status')
+    .select('id, assigned_to, clusters_status, price_min, price_max, min_yield')
     .eq('id', id)
     .single();
   if (!brief) return null;
@@ -69,7 +69,7 @@ function cleanSuburbs(list) {
   return { list: out };
 }
 
-// ---------- LIST ----------
+// ---------- LIST (already ranked) ----------
 router.get('/briefs/:id/clusters', async (req, res) => {
   const brief = await loadBrief(req, req.params.id);
   if (!brief) return res.status(404).json({ error: 'Brief not found' });
@@ -77,21 +77,13 @@ router.get('/briefs/:id/clusters', async (req, res) => {
   const { data, error } = await supabase
     .from('clusters')
     .select(`id, name, state, priority, cluster_suburbs(${SUBURB_COLUMNS})`)
-    .eq('brief_id', brief.id)
-    .order('priority');
+    .eq('brief_id', brief.id);
   if (error) return fail(res, error);
-
-  const clusters = data.map((c) => ({
-    ...c,
-    cluster_suburbs: [...c.cluster_suburbs].sort(
-      (a, b) => RANK[a.suitability] - RANK[b.suitability] || a.suburb.localeCompare(b.suburb)
-    )
-  }));
 
   res.json({
     status: brief.clusters_status,
     can_edit: canEdit(req, brief),
-    clusters
+    clusters: rankClusters(data, brief)
   });
 });
 
@@ -206,29 +198,6 @@ router.delete('/clusters/:id', async (req, res) => {
 
   const { error } = await supabase.from('clusters').delete().eq('id', cluster.id);
   if (error) return fail(res, error);
-  res.json({ ok: true });
-});
-
-// ---------- SAVE THE SOURCING PRIORITY ORDER ----------
-router.post('/briefs/:id/clusters/order', async (req, res) => {
-  const brief = await loadBrief(req, req.params.id);
-  if (!brief) return res.status(404).json({ error: 'Brief not found' });
-  if (!canEdit(req, brief)) return res.status(403).json({ error: LOCKED });
-
-  const ids = req.body.ids;
-  if (!Array.isArray(ids)) return res.status(400).json({ error: 'Send the list of clusters in order' });
-
-  const { data: existing } = await supabase.from('clusters').select('id').eq('brief_id', brief.id);
-  const have = new Set((existing || []).map((c) => c.id));
-  if (ids.length !== have.size || new Set(ids).size !== ids.length || !ids.every((id) => have.has(id))) {
-    return res.status(400).json({ error: 'The cluster list has changed. Please reload and try again.' });
-  }
-
-  const results = await Promise.all(
-    ids.map((id, i) => supabase.from('clusters').update({ priority: i + 1 }).eq('id', id))
-  );
-  const failed = results.find((r) => r.error);
-  if (failed) return fail(res, failed.error);
   res.json({ ok: true });
 });
 

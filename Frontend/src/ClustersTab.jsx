@@ -43,6 +43,18 @@ function Chip({ suburb, suitability }) {
   );
 }
 
+function ScoreBar({ score }) {
+  const color = score >= 65 ? 'bg-green-500' : score >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className={`h-2 ${color}`} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
+      </div>
+      <span className="font-semibold text-sm">{score}</span>
+    </div>
+  );
+}
+
 // Read-only table of one cluster's suburbs
 function SuburbTable({ suburbs }) {
   const th = 'px-3 py-2 text-left font-semibold';
@@ -58,6 +70,7 @@ function SuburbTable({ suburbs }) {
             <th className={th}>Suitability</th>
             <th className={th}>Median price</th>
             <th className={th}>Median yield</th>
+            <th className={th}>Score</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -76,9 +89,53 @@ function SuburbTable({ suburbs }) {
                 <td className="px-3 py-2">
                   {s.median_yield === null || s.median_yield === undefined ? '—' : `${s.median_yield}%`}
                 </td>
+                <td className="px-3 py-2 font-semibold">{dash(s.score)}</td>
               </tr>
             );
           })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Points behind each suburb's score
+function ScoreTable({ suburbs }) {
+  const th = 'px-3 py-2 text-left font-semibold';
+  const pts = (v) => (v === undefined || v === null ? '—' : v > 0 ? `+${v}` : `${v}`);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-100 text-xs text-gray-600">
+          <tr>
+            <th className={th}>Suburb</th>
+            <th className={th}>Suitability (35)</th>
+            <th className={th}>Budget fit (20)</th>
+            <th className={th}>Yield (15)</th>
+            <th className={th}>Sold (10)</th>
+            <th className={th}>On market (10)</th>
+            <th className={th}>Overlay (10 / −20)</th>
+            <th className={th}>Score</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {suburbs.map((s) => (
+            <tr key={s.id || s.suburb}>
+              <td className="px-3 py-2">
+                <p className="font-semibold">{s.suburb}</p>
+                {s.missing && s.missing.length > 0 && (
+                  <p className="text-xs text-yellow-700">Missing: {s.missing.join(', ')}</p>
+                )}
+              </td>
+              <td className="px-3 py-2">{pts(s.breakdown?.suitability)}</td>
+              <td className="px-3 py-2">{pts(s.breakdown?.budget)}</td>
+              <td className="px-3 py-2">{pts(s.breakdown?.yield)}</td>
+              <td className="px-3 py-2">{pts(s.breakdown?.sold)}</td>
+              <td className="px-3 py-2">{pts(s.breakdown?.on_market)}</td>
+              <td className="px-3 py-2">{pts(s.breakdown?.overlay)}</td>
+              <td className="px-3 py-2 font-semibold">{dash(s.score)}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -128,11 +185,11 @@ function PrintView({ brief, client, clusters }) {
         {brief.min_plot_size ? ` · min plot ${brief.min_plot_size} m²` : ''}
         {brief.min_yield ? ` · min yield ${brief.min_yield}%` : ''}
       </p>
-      {clusters.map((c, i) => (
+      {clusters.map((c) => (
         <div key={c.id} className="mb-6" style={{ pageBreakInside: 'avoid' }}>
           <p className="font-bold mb-1">
-            {ordinal(i + 1)} priority · {c.name}
-            {c.state ? ` (${c.state})` : ''}
+            {ordinal(c.rank)} priority · {c.name}
+            {c.state ? ` (${c.state})` : ''} · score {c.score}/100
           </p>
           <SuburbTable suburbs={c.cluster_suburbs} />
         </div>
@@ -146,18 +203,16 @@ export default function ClustersTab({ call, brief, client, isManager }) {
   const [data, setData] = useState(null);
   const [view, setView] = useState('list');
   const [editor, setEditor] = useState(null);
-  const [order, setOrder] = useState([]);
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState(null);
+  const [whyId, setWhyId] = useState(null);
   const [bulk, setBulk] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
     try {
-      const d = await call(`/briefs/${briefId}/clusters`);
-      setData(d);
-      setOrder(d.clusters.map((c) => c.id));
+      setData(await call(`/briefs/${briefId}/clusters`));
     } catch (e) {
       setError(e.message);
     }
@@ -171,8 +226,6 @@ export default function ClustersTab({ call, brief, client, isManager }) {
 
   const { clusters, status, can_edit } = data;
   const isFinal = status === 'final';
-  const byId = Object.fromEntries(clusters.map((c) => [c.id, c]));
-  const ordered = order.map((id) => byId[id]).filter(Boolean);
 
   const allSuburbs = clusters.flatMap((c) =>
     c.cluster_suburbs.map((s) => `${s.suburb}${c.state ? ' ' + c.state : ''}`)
@@ -185,7 +238,6 @@ export default function ClustersTab({ call, brief, client, isManager }) {
     setError('');
   };
   const goPriority = () => {
-    setOrder(clusters.map((c) => c.id));
     setView('priority');
     setEditor(null);
     setError('');
@@ -251,34 +303,17 @@ export default function ClustersTab({ call, brief, client, isManager }) {
     }
   };
 
-  // ----- priority helpers -----
-  const move = (id, position) => {
-    const rest = order.filter((x) => x !== id);
-    rest.splice(position - 1, 0, id);
-    setOrder(rest);
-  };
-
-  const savePriority = async () => {
+  // ----- finalise -----
+  const setStatus = async (value) => {
     setError('');
     setBusy(true);
     try {
-      await call(`/briefs/${briefId}/clusters/order`, { method: 'POST', body: JSON.stringify({ ids: order }) });
-      await call(`/briefs/${briefId}/clusters/status`, { method: 'POST', body: JSON.stringify({ status: 'final' }) });
+      await call(`/briefs/${briefId}/clusters/status`, { method: 'POST', body: JSON.stringify({ status: value }) });
       await load();
-      setView('list');
     } catch (e) {
       setError(e.message);
     }
     setBusy(false);
-  };
-
-  const reopen = async () => {
-    try {
-      await call(`/briefs/${briefId}/clusters/status`, { method: 'POST', body: JSON.stringify({ status: 'draft' }) });
-      await load();
-    } catch (e) {
-      setError(e.message);
-    }
   };
 
   const pill = (active) =>
@@ -317,11 +352,14 @@ export default function ClustersTab({ call, brief, client, isManager }) {
       >
         <p>
           {isFinal
-            ? 'These clusters are finalised. Only the manager can change them.'
-            : 'These clusters are in draft mode. Open Priority and click Generate & Save Priority to finalise.'}
+            ? 'The priority is finalised. Only the manager can change the clusters.'
+            : 'Priority is worked out automatically from the suburb data. When the data is complete, open Priority and click Generate & Save Priority.'}
         </p>
         {isFinal && isManager && (
-          <button onClick={reopen} className="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 rounded-lg">
+          <button
+            onClick={() => setStatus('draft')}
+            className="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 rounded-lg"
+          >
             Reopen
           </button>
         )}
@@ -354,7 +392,7 @@ export default function ClustersTab({ call, brief, client, isManager }) {
           />
 
           {clusters.length === 0 ? (
-            <p className="text-gray-500">No clusters yet. Group the suburbs worth searching, then set a priority order.</p>
+            <p className="text-gray-500">No clusters yet. Group the suburbs worth searching and fill in their data. The priority order is worked out for you.</p>
           ) : (
             <Box className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -364,24 +402,25 @@ export default function ClustersTab({ call, brief, client, isManager }) {
                     <th className="px-3 py-2 text-left">Cluster name</th>
                     <th className="px-3 py-2 text-left">Suburbs</th>
                     <th className="px-3 py-2 text-left">State</th>
+                    <th className="px-3 py-2 text-left">Score</th>
                     <th className="px-3 py-2 text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {shown.map((c) => {
-                    const rank = clusters.indexOf(c) + 1;
                     const names = c.cluster_suburbs.map((s) => s.suburb);
                     const open = openId === c.id;
                     return (
                       <React.Fragment key={c.id}>
                         <tr>
-                          <td className="px-3 py-3 font-semibold">{ordinal(rank)}</td>
+                          <td className="px-3 py-3 font-semibold">{ordinal(c.rank)}</td>
                           <td className="px-3 py-3 font-semibold text-blue-600">{c.name || 'Unnamed'}</td>
                           <td className="px-3 py-3 text-gray-700">
                             {names.slice(0, 3).join(', ')}
                             {names.length > 3 ? ` +${names.length - 3} more` : ''}
                           </td>
                           <td className="px-3 py-3">{c.state || '—'}</td>
+                          <td className="px-3 py-3"><ScoreBar score={c.score} /></td>
                           <td className="px-3 py-3">
                             <div className="flex gap-2">
                               <button onClick={() => setOpenId(open ? null : c.id)} className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg">
@@ -398,7 +437,7 @@ export default function ClustersTab({ call, brief, client, isManager }) {
                         </tr>
                         {open && (
                           <tr>
-                            <td colSpan={5} className="px-3 pb-4 bg-gray-50">
+                            <td colSpan={6} className="px-3 pb-4 bg-gray-50">
                               <SuburbTable suburbs={c.cluster_suburbs} />
                             </td>
                           </tr>
@@ -413,61 +452,95 @@ export default function ClustersTab({ call, brief, client, isManager }) {
         </>
       )}
 
-      {/* ================= PRIORITY ================= */}
+      {/* ================= PRIORITY (AUTOMATIC) ================= */}
       {view === 'priority' && (
         <Box>
-          <h3 className="text-lg font-bold mb-4">Cluster priority management</h3>
-          {ordered.length === 0 ? (
+          <h3 className="text-lg font-bold mb-1">Cluster priority</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Ranked automatically from the suburb data, measured against the brief. Change the data and the order updates.
+          </p>
+
+          <details className="mb-4 text-sm bg-gray-50 rounded-lg p-3">
+            <summary className="cursor-pointer font-semibold">How the score works</summary>
+            <ul className="list-disc pl-5 mt-2 space-y-1 text-gray-700">
+              <li><strong>Brief suitability (35):</strong> High = 35, Medium = 17.5, Low = 0.</li>
+              <li><strong>Budget fit (20):</strong> median price inside the brief's price range = full marks, within 10% outside = half.</li>
+              <li><strong>Yield (15):</strong> median yield meets the brief's minimum = full marks, within 0.5 points below = half.</li>
+              <li><strong>Sold in the last 3 months (10):</strong> 10 or more matching sales = full marks.</li>
+              <li><strong>On market now (10):</strong> 10 or more matching listings = full marks.</li>
+              <li><strong>Overlay:</strong> not majorly covered = +10, covered over 75% = −20.</li>
+              <li>A cluster's score is the average of its suburbs. Ties go to the cluster with more High suburbs, then more properties on the market.</li>
+              <li>Missing data scores zero, so fill in every column for a fair score.</li>
+            </ul>
+          </details>
+
+          {clusters.length === 0 ? (
             <p className="text-gray-500">Add some clusters first.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs text-gray-500 uppercase">
                   <tr>
+                    <th className="px-3 py-2 text-left">Priority</th>
                     <th className="px-3 py-2 text-left">Cluster</th>
                     <th className="px-3 py-2 text-left">Suburbs (suitability)</th>
-                    <th className="px-3 py-2 text-left">Sourcing priority</th>
+                    <th className="px-3 py-2 text-left">Score</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {ordered.map((c) => (
-                    <tr key={c.id}>
-                      <td className="px-3 py-3 font-semibold align-top">{c.name || 'Unnamed'}</td>
-                      <td className="px-3 py-3">
-                        {c.cluster_suburbs.map((s) => (
-                          <Chip key={s.id} suburb={s.suburb} suitability={s.suitability} />
-                        ))}
-                      </td>
-                      <td className="px-3 py-3 align-top w-40">
-                        <select
-                          className={cellInput}
-                          disabled={!can_edit}
-                          value={order.indexOf(c.id) + 1}
-                          onChange={(e) => move(c.id, Number(e.target.value))}
-                        >
-                          {order.map((_, i) => (
-                            <option key={i} value={i + 1}>{ordinal(i + 1)}</option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
+                  {clusters.map((c) => {
+                    const why = whyId === c.id;
+                    return (
+                      <React.Fragment key={c.id}>
+                        <tr>
+                          <td className="px-3 py-3 font-bold align-top">{ordinal(c.rank)}</td>
+                          <td className="px-3 py-3 font-semibold align-top">
+                            {c.name || 'Unnamed'}
+                            {c.state ? <span className="text-gray-500 font-normal"> · {c.state}</span> : null}
+                          </td>
+                          <td className="px-3 py-3">
+                            {c.cluster_suburbs.map((s) => (
+                              <Chip key={s.id} suburb={s.suburb} suitability={s.suitability} />
+                            ))}
+                            {c.missing_count > 0 && (
+                              <p className="text-xs text-yellow-700">
+                                ⚠ Data missing for {c.missing_count} suburb{c.missing_count > 1 ? 's' : ''}, so the score may be too low
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            <ScoreBar score={c.score} />
+                            <button onClick={() => setWhyId(why ? null : c.id)} className="text-xs text-blue-600 hover:text-blue-800 mt-1">
+                              {why ? 'Hide details' : 'Why this rank?'}
+                            </button>
+                          </td>
+                        </tr>
+                        {why && (
+                          <tr>
+                            <td colSpan={4} className="px-3 pb-4 bg-gray-50">
+                              <ScoreTable suburbs={c.cluster_suburbs} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
 
           <div className="flex flex-wrap gap-2 mt-4">
-            {can_edit && ordered.length > 0 && (
+            {can_edit && !isFinal && clusters.length > 0 && (
               <button
-                onClick={savePriority}
+                onClick={() => setStatus('final')}
                 disabled={busy}
                 className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg font-semibold disabled:opacity-50"
               >
                 Generate & Save Priority
               </button>
             )}
-            {ordered.length > 0 && (
+            {clusters.length > 0 && (
               <button
                 onClick={() => window.print()}
                 className="px-4 py-2 bg-blue-700 text-white hover:bg-blue-800 rounded-lg font-semibold"
