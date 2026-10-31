@@ -94,11 +94,32 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
   }
 
   const { brief, client, properties } = data;
+  const pendingBrief = brief.status === 'pending_approval';
+  const activeTab = pendingBrief ? 'details' : tab;
   const [statusLabel, statusClass] = BRIEF_STATUS[brief.status] || [brief.status, ''];
+
+  const approve = async () => {
+    try {
+      await call(`/briefs/${brief.id}/approve`, { method: 'POST' });
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const decline = async () => {
+    if (!window.confirm('Decline this brief? It will be closed.')) return;
+    try {
+      await call(`/briefs/${brief.id}/decline`, { method: 'POST' });
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
   const tabClass = (name) =>
     `px-4 py-2 font-semibold border-b-2 ${
-      tab === name ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'
+      activeTab === name ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'
     }`;
 
   const chip = 'px-3 py-1 bg-white rounded-lg shadow text-sm';
@@ -106,7 +127,7 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
   return (
     <div className="space-y-6">
       <button onClick={onBack} className="text-blue-600 hover:text-blue-800">
-        ← Back to {isManager ? client.name : `Client ${client.client_number}`}
+        ← Back
       </button>
 
       <div className="flex flex-wrap justify-between items-start gap-3">
@@ -119,6 +140,25 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
         <span className={`px-3 py-1 rounded text-sm font-semibold ${statusClass}`}>{statusLabel}</span>
       </div>
 
+      {error && <p className="text-red-600 text-sm">{error}</p>}
+
+      {pendingBrief && isManager && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-yellow-900">
+            This search was submitted by the client. Check the requirements (you can change them with Edit Brief),
+            then approve it. Approving makes it active so you can assign it to an employee.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={approve} className="px-4 py-2 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg font-semibold">
+              Approve
+            </button>
+            <button onClick={decline} className="px-4 py-2 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-semibold">
+              Decline
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <span className={chip}>💰 {gbp(brief.price_min)} – {gbp(brief.price_max)}</span>
         <span className={chip}>🛏 {brief.bedrooms ?? '—'} · 🛁 {brief.bathrooms ?? '—'} · 🚗 {brief.car_spaces ?? '—'}</span>
@@ -128,18 +168,22 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
       </div>
 
       <div className="flex space-x-2 border-b border-gray-200">
-        <button className={tabClass('properties')} onClick={() => setTab('properties')}>
-          Properties ({properties.length})
-        </button>
-        <button className={tabClass('clusters')} onClick={() => setTab('clusters')}>
-          Clusters
-        </button>
+        {!pendingBrief && (
+          <>
+            <button className={tabClass('properties')} onClick={() => setTab('properties')}>
+              Properties ({properties.length})
+            </button>
+            <button className={tabClass('clusters')} onClick={() => setTab('clusters')}>
+              Clusters
+            </button>
+          </>
+        )}
         <button className={tabClass('details')} onClick={() => setTab('details')}>
           Brief details
         </button>
       </div>
 
-      {tab === 'properties' && (
+      {activeTab === 'properties' && (
         <PropertiesTab
           call={call}
           brief={brief}
@@ -150,8 +194,8 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
           onOpen={setOpenPropertyId}
         />
       )}
-      {tab === 'clusters' && <ClustersTab call={call} brief={brief} client={client} isManager={isManager} />}
-      {tab === 'details' && (
+      {activeTab === 'clusters' && <ClustersTab call={call} brief={brief} client={client} isManager={isManager} />}
+      {activeTab === 'details' && (
         <DetailsTab call={call} brief={brief} team={team} isManager={isManager} reload={load} />
       )}
     </div>
@@ -437,11 +481,28 @@ const BRIEF_INPUTS = [
   ['due_date', 'Due date', 'date']
 ];
 
+// Fields from the client's long brief form
+const EXTRA_FIELDS = [
+  ['rent_pw_min', 'Expected weekly rent, from (£)', 'number'],
+  ['rent_pw_max', 'Expected weekly rent, to (£)', 'number'],
+  ['preferred_states', 'Preferred states / regions', 'text'],
+  ['exclusions', 'Non-negotiable exclusions', 'textarea'],
+  ['power_line_distance', 'Distance from high-voltage power lines', 'text'],
+  ['cemetery_distance', 'Distance from cemeteries', 'text'],
+  ['other_mandatory_criteria', 'Other mandatory criteria', 'textarea'],
+  ['must_haves', 'Must have', 'textarea'],
+  ['must_avoids', 'Must avoid', 'textarea'],
+  ['rejected_properties', 'Properties already rejected', 'textarea'],
+  ['liked_missed_properties', 'Properties liked but missed', 'textarea']
+];
+const RENT_KEYS = ['rent_pw_min', 'rent_pw_max'];
+
 function DetailsTab({ call, brief, team, isManager, reload }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const pending = brief.status === 'pending_approval';
 
   const startEdit = () => {
     setForm({ ...brief });
@@ -454,8 +515,11 @@ function DetailsTab({ call, brief, team, isManager, reload }) {
     setError('');
     const keys = [
       ...BRIEF_INPUTS.map(([k]) => k),
-      'preferred_areas', 'notes', 'status', 'assigned_to', 'commission_amount'
+      ...EXTRA_FIELDS.map(([k]) => k),
+      'preferred_areas', 'notes', 'commission_amount'
     ];
+    // A pending brief can only be changed by approving or declining it
+    if (!pending) keys.push('status', 'assigned_to');
     const payload = {};
     keys.forEach((k) => {
       payload[k] = form[k] ?? '';
@@ -487,29 +551,53 @@ function DetailsTab({ call, brief, team, isManager, reload }) {
             <label className="text-xs text-gray-600">Your commission (£)</label>
             <input className={inputClass} type="number" value={form.commission_amount ?? ''} onChange={set('commission_amount')} />
           </div>
-          <div>
-            <label className="text-xs text-gray-600">Status</label>
-            <select className={inputClass} value={form.status} onChange={set('status')}>
-              {Object.entries(BRIEF_STATUS).map(([value, [label]]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
+
+          {!pending ? (
+            <>
+              <div>
+                <label className="text-xs text-gray-600">Status</label>
+                <select className={inputClass} value={form.status} onChange={set('status')}>
+                  {Object.entries(BRIEF_STATUS)
+                    .filter(([value]) => value !== 'pending_approval')
+                    .map(([value, [label]]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600">Assigned to</label>
+                <select className={inputClass} value={form.assigned_to ?? ''} onChange={set('assigned_to')}>
+                  <option value="">Unassigned</option>
+                  {team.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : (
+            <p className="md:col-span-2 text-sm text-yellow-800 bg-yellow-50 rounded-lg p-3">
+              Status and assignment unlock once you approve this brief.
+            </p>
+          )}
+
           <div className="md:col-span-2">
-            <label className="text-xs text-gray-600">Assigned to</label>
-            <select className={inputClass} value={form.assigned_to ?? ''} onChange={set('assigned_to')}>
-              <option value="">Unassigned</option>
-              {team.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-xs text-gray-600">Preferred areas</label>
+            <label className="text-xs text-gray-600">Preferred areas / suburbs</label>
             <input className={inputClass} value={form.preferred_areas ?? ''} onChange={set('preferred_areas')} />
           </div>
+
+          {EXTRA_FIELDS.map(([key, label, type]) => (
+            <div key={key} className={type === 'textarea' ? 'md:col-span-2' : ''}>
+              <label className="text-xs text-gray-600">{label}</label>
+              {type === 'textarea' ? (
+                <textarea className={inputClass} rows={3} value={form[key] ?? ''} onChange={set(key)} />
+              ) : (
+                <input className={inputClass} type={type} step={type === 'number' ? 'any' : undefined} value={form[key] ?? ''} onChange={set(key)} />
+              )}
+            </div>
+          ))}
+
           <div className="md:col-span-2">
-            <label className="text-xs text-gray-600">Notes</label>
+            <label className="text-xs text-gray-600">Private notes</label>
             <textarea className={inputClass} value={form.notes ?? ''} onChange={set('notes')} />
           </div>
           {error && <p className="text-red-600 text-sm md:col-span-2">{error}</p>}
@@ -522,6 +610,7 @@ function DetailsTab({ call, brief, team, isManager, reload }) {
   }
 
   const overdue = brief.due_date && brief.status === 'active' && new Date(brief.due_date) < new Date(new Date().toDateString());
+  const extras = EXTRA_FIELDS.filter(([key]) => brief[key] !== null && brief[key] !== undefined && brief[key] !== '');
 
   return (
     <Box>
@@ -548,7 +637,10 @@ function DetailsTab({ call, brief, team, isManager, reload }) {
         </div>
         {isManager && (
           <>
-            <div><p className="text-gray-500">Assigned to</p><p className="font-semibold">{brief.assigned_name || 'Unassigned'}</p></div>
+            <div>
+              <p className="text-gray-500">Assigned to</p>
+              <p className="font-semibold">{pending ? 'Approve first' : brief.assigned_name || 'Unassigned'}</p>
+            </div>
             <div>
               <p className="text-gray-500">Your commission</p>
               <p className="font-semibold">{gbp(brief.commission_amount)}</p>
@@ -557,8 +649,25 @@ function DetailsTab({ call, brief, team, isManager, reload }) {
           </>
         )}
       </div>
-      {brief.preferred_areas && <p className="text-sm mt-4"><span className="text-gray-500">Areas:</span> {brief.preferred_areas}</p>}
-      {brief.notes && <p className="text-sm mt-2 text-gray-600 whitespace-pre-wrap">{brief.notes}</p>}
+
+      {brief.preferred_areas && (
+        <p className="text-sm mt-4"><span className="text-gray-500">Areas / suburbs:</span> {brief.preferred_areas}</p>
+      )}
+
+      {extras.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5 pt-5 border-t border-gray-100 text-sm">
+          {extras.map(([key, label, type]) => (
+            <div key={key} className={type === 'textarea' ? 'md:col-span-2' : ''}>
+              <p className="text-gray-500">{label}</p>
+              <p className="font-semibold whitespace-pre-wrap">
+                {RENT_KEYS.includes(key) ? gbp(brief[key]) : brief[key]}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {brief.notes && <p className="text-sm mt-4 text-gray-600 whitespace-pre-wrap">{brief.notes}</p>}
     </Box>
   );
 }

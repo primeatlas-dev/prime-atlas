@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
 import BriefPage from './BriefPage';
 import ClientLogin from './ClientLogin';
+
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const inputClass =
@@ -44,10 +45,12 @@ function makeCall(token) {
 // ==================== CLIENTS LIST ====================
 export default function ClientsPage({ token, isManager }) {
   const [clients, setClients] = useState([]);
+  const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [directBriefId, setDirectBriefId] = useState(null);
   const call = makeCall(token);
 
   const load = async () => {
@@ -56,12 +59,33 @@ export default function ClientsPage({ token, isManager }) {
     } catch (e) {
       console.error(e);
     }
+    if (isManager) {
+      try {
+        setPending(await call('/briefs/pending'));
+      } catch (e) {
+        console.error(e);
+      }
+    }
     setLoading(false);
   };
 
   useEffect(() => {
     load();
   }, []);
+
+  if (directBriefId) {
+    return (
+      <BriefPage
+        token={token}
+        briefId={directBriefId}
+        isManager={isManager}
+        onBack={() => {
+          setDirectBriefId(null);
+          load();
+        }}
+      />
+    );
+  }
 
   if (selectedId) {
     return (
@@ -91,6 +115,30 @@ export default function ClientsPage({ token, isManager }) {
 
   return (
     <div className="space-y-6">
+      {isManager && pending.length > 0 && (
+        <Box className="border-l-4 border-yellow-400">
+          <p className="font-semibold mb-3">Awaiting your approval ({pending.length})</p>
+          <div className="divide-y divide-gray-100">
+            {pending.map((b) => (
+              <div
+                key={b.id}
+                onClick={() => setDirectBriefId(b.id)}
+                className="py-2 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-50"
+              >
+                <div>
+                  <p className="font-semibold text-blue-600">{b.title || 'Untitled brief'}</p>
+                  <p className="text-xs text-gray-500">
+                    {b.client_name} · Client #{b.client_number} · submitted{' '}
+                    {new Date(b.submitted_at || b.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <span className="text-sm text-blue-600">Review →</span>
+              </div>
+            ))}
+          </div>
+        </Box>
+      )}
+
       <div className="flex justify-between items-center gap-4">
         <div className="relative flex-1">
           <Search size={18} className="absolute left-3 top-3 text-gray-400" />
@@ -137,12 +185,15 @@ export default function ClientsPage({ token, isManager }) {
             >
               <h3 className="font-semibold text-lg text-gray-800">{c.name}</h3>
               {isManager && <p className="text-xs text-gray-500 mb-2">Client #{c.client_number}</p>}
-              {isManager && c.company_name && (
-                <p className="text-sm text-gray-600">🏢 {c.company_name}</p>
-              )}
+              {isManager && c.company_name && <p className="text-sm text-gray-600">🏢 {c.company_name}</p>}
               <p className="text-sm text-gray-600 mt-2">
                 Active briefs: <strong>{c.active_briefs}</strong>
               </p>
+              {isManager && c.pending_briefs > 0 && (
+                <p className="text-sm text-yellow-800 mt-1">
+                  {c.pending_briefs} awaiting approval
+                </p>
+              )}
             </Box>
           ))}
         </div>
@@ -224,6 +275,18 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
       setError(e.message);
     }
   };
+
+  const decide = async (id, action) => {
+    if (action === 'decline' && !window.confirm('Decline this brief? It will be closed.')) return;
+    setError('');
+    try {
+      await call(`/briefs/${id}/${action}`, { method: 'POST' });
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   if (openBriefId) {
     return (
       <BriefPage
@@ -237,6 +300,7 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
       />
     );
   }
+
   if (!data) return <p className="text-gray-500">{error || 'Loading…'}</p>;
 
   const { client, briefs } = data;
@@ -294,12 +358,16 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
           {briefs.length === 0 && <p className="text-gray-500">No briefs yet.</p>}
 
           {briefs.map((b) => {
+            const pending = b.status === 'pending_approval';
             const overdue = b.due_date && b.status === 'active' && new Date(b.due_date) < today;
             return (
-              <Box key={b.id} className={overdue ? 'border-l-4 border-red-500' : ''}>
+              <Box key={b.id} className={overdue ? 'border-l-4 border-red-500' : pending ? 'border-l-4 border-yellow-400' : ''}>
                 <div className="flex justify-between items-start mb-3">
                   <div>
-                    <p className="text-xs text-gray-500">Brief #{b.brief_number}</p>
+                    <p className="text-xs text-gray-500">
+                      Brief #{b.brief_number}
+                      {b.submitted_by_client ? ' · submitted by the client' : ''}
+                    </p>
                     <h4
                       className="font-semibold text-lg text-blue-600 hover:underline cursor-pointer"
                       onClick={() => setOpenBriefId(b.id)}
@@ -328,9 +396,25 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
                 </div>
 
                 {b.preferred_areas && <p className="text-sm mt-3"><span className="text-gray-500">Areas:</span> {b.preferred_areas}</p>}
-                {b.notes && <p className="text-sm mt-1 text-gray-600 whitespace-pre-wrap">{b.notes}</p>}
 
-                {isManager && (
+                {isManager && pending && (
+                  <div className="mt-4 pt-4 border-t border-gray-200 flex flex-wrap gap-2 items-center">
+                    <p className="text-sm text-yellow-800 flex-1">
+                      Submitted by the client. Review it, edit if needed, then approve.
+                    </p>
+                    <button onClick={() => setOpenBriefId(b.id)} className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">
+                      Review
+                    </button>
+                    <button onClick={() => decide(b.id, 'approve')} className="px-3 py-1 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg">
+                      Approve
+                    </button>
+                    <button onClick={() => decide(b.id, 'decline')} className="px-3 py-1 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded-lg">
+                      Decline
+                    </button>
+                  </div>
+                )}
+
+                {isManager && !pending && (
                   <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                     <div>
                       <p className="text-gray-500 mb-1">Assigned to</p>
@@ -352,15 +436,17 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
                         value={b.status}
                         onChange={(e) => updateBrief(b.id, { status: e.target.value })}
                       >
-                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>{label}</option>
-                        ))}
+                        {Object.entries(STATUS_LABELS)
+                          .filter(([value]) => value !== 'pending_approval')
+                          .map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
                       </select>
                     </div>
                     <div>
                       <p className="text-gray-500 mb-1">Your commission</p>
                       <p className="font-semibold">{gbp(b.commission_amount)}</p>
-                      <p className="text-xs text-gray-500">Fee: {b.fee_status.replace('_', ' ')}</p>
+                      <p className="text-xs text-gray-500">Fee: {(b.fee_status || '').replace('_', ' ')}</p>
                     </div>
                   </div>
                 )}

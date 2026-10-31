@@ -59,7 +59,12 @@ async function loadAccessible(req, propertyId) {
       .single();
     brief = data;
   }
-  if (!isManager(req) && (!brief || brief.assigned_to !== req.user.id)) return {};
+  if (
+    !isManager(req) &&
+    (!brief || brief.assigned_to !== req.user.id || brief.status === 'pending_approval')
+  ) {
+    return {};
+  }
   return { property, brief };
 }
 

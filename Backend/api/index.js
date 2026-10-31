@@ -3,6 +3,7 @@ const cors = require('cors');
 const supabase = require('../lib/supabase');
 const requireAuth = require('../middleware/auth');
 const { requireManager, requireStaff, requireClient } = require('../middleware/auth');
+const blockPendingForEmployees = require('../middleware/pendingGuard');
 const app = express();
 
 app.use(cors({ origin: process.env.FRONTEND_URL }));
@@ -40,11 +41,13 @@ app.use(
   require('../routes/portalChat')
 );
 
-// Staff routes (managers and employees). Client accounts are blocked here.
+// Staff routes (managers and employees). Client accounts are blocked here,
+// and employees are blocked from briefs that are still awaiting approval.
 app.use(
   '/api',
   requireAuth,
   requireStaff,
+  blockPendingForEmployees,
   require('../routes/clientLogins'),
   require('../routes/clients'),
   require('../routes/propertyPage'),

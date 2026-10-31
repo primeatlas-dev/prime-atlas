@@ -19,10 +19,10 @@ async function staffAccess(req, propertyId) {
 
   const { data: brief } = await supabase
     .from('briefs')
-    .select('id, client_id, assigned_to')
+    .select('id, client_id, assigned_to, status')
     .eq('id', property.brief_id)
     .single();
-  if (!brief) return null;
+  if (!brief || brief.status === 'pending_approval') return null;
   if (!isManager(req) && brief.assigned_to !== req.user.id) return null;
 
   const { data: client } = await supabase
@@ -41,7 +41,10 @@ async function staffAccess(req, propertyId) {
 // ---------- LIST OF CHATS (approved properties only) ----------
 router.get('/chats', async (req, res) => {
   try {
-    let briefQuery = supabase.from('briefs').select('id, brief_number, client_id');
+    let briefQuery = supabase
+      .from('briefs')
+      .select('id, brief_number, client_id')
+      .neq('status', 'pending_approval');
     if (!isManager(req)) briefQuery = briefQuery.eq('assigned_to', req.user.id);
     const { data: briefs, error } = await briefQuery;
     if (error) return fail(res, error);

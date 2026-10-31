@@ -6,9 +6,13 @@ const router = express.Router();
 const fail = (res, error) => res.status(500).json({ error: error.message });
 
 // Only these columns ever leave the server for a client
-const BRIEF_COLUMNS =
-  'id, brief_number, title, status, price_min, price_max, min_plot_size, min_yield, ' +
-  'bedrooms, bathrooms, car_spaces, max_property_age, property_type, preferred_areas';
+const REQUIREMENT_COLUMNS =
+  'title, price_min, price_max, min_plot_size, min_yield, bedrooms, bathrooms, car_spaces, ' +
+  'max_property_age, property_type, preferred_areas, rent_pw_min, rent_pw_max, preferred_states, ' +
+  'exclusions, power_line_distance, cemetery_distance, other_mandatory_criteria, must_haves, ' +
+  'must_avoids, rejected_properties, liked_missed_properties';
+
+const BRIEF_COLUMNS = `id, brief_number, status, created_at, ${REQUIREMENT_COLUMNS}`;
 
 const CARD_COLUMNS =
   'id, property_title, address, region, source, price, price_max, bedrooms, bathrooms, ' +
@@ -26,6 +30,56 @@ const DETAIL_COLUMNS = [
   'nearest_bus_stop', 'airport_distance', 'railway_distance', 'schools',
   'hospitals', 'shopping_centers', 'client_decision', 'client_comment', 'viewed_at'
 ].join(', ');
+
+// What a client is allowed to send when submitting a new search. Anything else is ignored.
+const TEXT_LIMITS = {
+  title: 120, property_type: 100, preferred_states: 200, power_line_distance: 100,
+  cemetery_distance: 100, preferred_areas: 2000, exclusions: 2000,
+  other_mandatory_criteria: 2000, must_haves: 2000, must_avoids: 2000,
+  rejected_properties: 2000, liked_missed_properties: 2000
+};
+const NUMBER_RULES = {
+  price_min: { max: 1e9 }, price_max: { max: 1e9 },
+  rent_pw_min: { max: 1e6 }, rent_pw_max: { max: 1e6 },
+  min_yield: { max: 100 }, min_plot_size: { max: 1e7 },
+  bedrooms: { max: 50, integer: true }, bathrooms: { max: 50, integer: true },
+  car_spaces: { max: 50, integer: true }, max_property_age: { max: 500, integer: true }
+};
+const MAX_PENDING = 5;
+
+function parseSubmission(input) {
+  const body = input || {};
+  const fields = {};
+  const label = (key) => key.replace(/_/g, ' ');
+
+  for (const [key, limit] of Object.entries(TEXT_LIMITS)) {
+    const v = body[key];
+    if (typeof v !== 'string') continue;
+    const text = v.trim();
+    if (text.length > limit) return { error: `The ${label(key)} is too long` };
+    if (text) fields[key] = text;
+  }
+  for (const [key, rule] of Object.entries(NUMBER_RULES)) {
+    const v = body[key];
+    if (v === undefined || v === null || v === '') continue;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > rule.max) {
+      return { error: `Please check the ${label(key)}` };
+    }
+    fields[key] = rule.integer ? Math.round(n) : n;
+  }
+
+  if (!fields.title || fields.title.length < 3) {
+    return { error: 'Please give your search a title' };
+  }
+  if (fields.price_min !== undefined && fields.price_max !== undefined && fields.price_min > fields.price_max) {
+    return { error: 'Your minimum budget cannot be higher than your maximum budget' };
+  }
+  if (fields.rent_pw_min !== undefined && fields.rent_pw_max !== undefined && fields.rent_pw_min > fields.rent_pw_max) {
+    return { error: 'Your minimum rent cannot be higher than your maximum rent' };
+  }
+  return { fields };
+}
 
 async function myClient(userId) {
   const { data } = await supabase
@@ -58,7 +112,7 @@ async function loadOwnProperty(clientId, propertyId, columns) {
   return { property, brief };
 }
 
-// ---------- MY BRIEFS ----------
+// ---------- MY BRIEFS (including ones awaiting approval) ----------
 router.get('/briefs', async (req, res) => {
   const client = await myClient(req.user.id);
   if (!client) return res.status(404).json({ error: 'No client record is linked to this login' });
@@ -67,16 +121,16 @@ router.get('/briefs', async (req, res) => {
     .from('briefs')
     .select(BRIEF_COLUMNS)
     .eq('client_id', client.id)
-    .neq('status', 'pending_approval')
     .order('created_at', { ascending: false });
   if (error) return fail(res, error);
 
+  const live = briefs.filter((b) => b.status !== 'pending_approval');
   let props = [];
-  if (briefs.length) {
+  if (live.length) {
     const { data } = await supabase
       .from('properties')
       .select('brief_id, client_decision, viewed_at')
-      .in('brief_id', briefs.map((b) => b.id))
+      .in('brief_id', live.map((b) => b.id))
       .eq('approval_status', 'approved');
     props = data || [];
   }
@@ -95,6 +149,41 @@ router.get('/briefs', async (req, res) => {
   });
 });
 
+// ---------- SUBMIT A NEW SEARCH ----------
+router.post('/briefs', async (req, res) => {
+  const client = await myClient(req.user.id);
+  if (!client) return res.status(404).json({ error: 'No client record is linked to this login' });
+
+  const parsed = parseSubmission(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  const { count } = await supabase
+    .from('briefs')
+    .select('id', { count: 'exact', head: true })
+    .eq('client_id', client.id)
+    .eq('status', 'pending_approval');
+  if ((count || 0) >= MAX_PENDING) {
+    return res.status(400).json({
+      error: `You already have ${MAX_PENDING} searches awaiting approval. Please wait for us to review them.`
+    });
+  }
+
+  // The client id, status and approval details are always set here, never taken from the browser
+  const { data, error } = await supabase
+    .from('briefs')
+    .insert({
+      ...parsed.fields,
+      client_id: client.id,
+      status: 'pending_approval',
+      submitted_by_client: true,
+      submitted_at: new Date().toISOString()
+    })
+    .select('id, brief_number, status')
+    .single();
+  if (error) return fail(res, error);
+  res.status(201).json(data);
+});
+
 // ---------- ONE BRIEF + ITS APPROVED PROPERTIES ----------
 router.get('/briefs/:id', async (req, res) => {
   const client = await myClient(req.user.id);
@@ -105,9 +194,11 @@ router.get('/briefs/:id', async (req, res) => {
     .select(BRIEF_COLUMNS)
     .eq('id', req.params.id)
     .eq('client_id', client.id)
-    .neq('status', 'pending_approval')
     .single();
   if (!brief) return res.status(404).json({ error: 'Search not found' });
+
+  // A search that is still awaiting approval never returns any properties
+  if (brief.status === 'pending_approval') return res.json({ brief, properties: [] });
 
   const { data: properties, error } = await supabase
     .from('properties')

@@ -102,3 +102,11 @@ Use three kinds of login: manager, employee and client. Private windows in the s
 - Dashboards (manager overview, employee "My Pending Work"), notifications, and an overdue-work alert.
 - Match score (employee side only), fee tracker (manager only), activity history on properties, chat attachments, search polish and a phone layout.
 - A security review, backups, and moving to paid hosting plans before real clients use it. Vercel's free plan is meant for non-commercial use, and Supabase's free plan has no backups. UK GDPR basics (privacy notice) also need attention.
+
+## Pending briefs (added rules)
+
+- A brief a client submits starts as `pending_approval`, with no employee assigned and no commission.
+- Employees never see a pending brief, anywhere. `Backend/middleware/pendingGuard.js` enforces this for every staff route that names a brief, property, cluster or media file.
+- A client sees only their own pending brief, showing just the requirements they entered. It never returns properties.
+- A pending brief can only change through the manager's Approve (becomes active) or Decline (becomes closed). It cannot be assigned until it is approved, and an active brief never goes back to pending.
+- Client submissions accept only an allow-list of fields, and never `status`, `client_id`, `assigned_to`, commission, fee or approval fields.

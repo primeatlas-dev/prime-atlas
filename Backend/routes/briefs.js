@@ -27,7 +27,12 @@ const isManager = (req) => req.user.role === 'manager';
 async function loadBrief(req, id) {
   const { data: brief } = await supabase.from('briefs').select('*').eq('id', id).single();
   if (!brief) return null;
-  if (!isManager(req) && brief.assigned_to !== req.user.id) return null;
+  if (
+    !isManager(req) &&
+    (brief.assigned_to !== req.user.id || brief.status === 'pending_approval')
+  ) {
+    return null;
+  }
   return brief;
 }
 
@@ -85,6 +90,9 @@ router.get('/briefs/:id', async (req, res) => {
 router.post('/briefs/:id/properties', async (req, res) => {
   const brief = await loadBrief(req, req.params.id);
   if (!brief) return res.status(404).json({ error: 'Brief not found' });
+  if (brief.status === 'pending_approval') {
+    return res.status(403).json({ error: 'Approve this brief before adding properties' });
+  }
 
   const fields = pick(req.body, PROPERTY_FIELDS);
   if (!fields.property_title || !fields.address) {

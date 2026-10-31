@@ -14,11 +14,16 @@ const SUBURB_COLUMNS =
 async function loadBrief(req, id) {
   const { data: brief } = await supabase
     .from('briefs')
-    .select('id, assigned_to, clusters_status, price_min, price_max, min_yield')
+    .select('id, assigned_to, status, clusters_status, price_min, price_max, min_yield')
     .eq('id', id)
     .single();
   if (!brief) return null;
-  if (!isManager(req) && brief.assigned_to !== req.user.id) return null;
+  if (
+    !isManager(req) &&
+    (brief.assigned_to !== req.user.id || brief.status === 'pending_approval')
+  ) {
+    return null;
+  }
   return brief;
 }
 

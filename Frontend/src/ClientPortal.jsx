@@ -4,7 +4,11 @@ import ChatPanel from './ChatPanel';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+const inputClass =
+  'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
+
 const BRIEF_STATUS = {
+  pending_approval: ['Awaiting approval', 'bg-yellow-100 text-yellow-800'],
   active: ['Active', 'bg-green-100 text-green-800'],
   on_hold: ['On hold', 'bg-gray-100 text-gray-800'],
   closed: ['Closed', 'bg-red-100 text-red-800']
@@ -17,8 +21,63 @@ const DECISION = {
   confirmed: ['Confirmed', 'bg-green-100 text-green-800']
 };
 
+// The questions on the "New search" form, grouped as in the reference system
+const REQUIREMENT_GROUPS = [
+  {
+    title: 'Budget and returns',
+    fields: [
+      ['price_min', 'Minimum budget (£)', 'number'],
+      ['price_max', 'Maximum budget (£)', 'number'],
+      ['rent_pw_min', 'Expected weekly rent, from (£)', 'number'],
+      ['rent_pw_max', 'Expected weekly rent, to (£)', 'number'],
+      ['min_yield', 'Target gross yield (%)', 'number']
+    ]
+  },
+  {
+    title: 'Location preferences',
+    fields: [
+      ['preferred_states', 'Preferred states / regions', 'text'],
+      ['preferred_areas', 'Preferred suburbs', 'textarea'],
+      ['exclusions', 'Non-negotiable exclusions (suburbs / regions)', 'textarea']
+    ]
+  },
+  {
+    title: 'Property criteria',
+    fields: [
+      ['property_type', 'Property type', 'text'],
+      ['min_plot_size', 'Minimum land size (m²)', 'number'],
+      ['bedrooms', 'Bedrooms', 'number'],
+      ['bathrooms', 'Bathrooms', 'number'],
+      ['car_spaces', 'Minimum car parking', 'number'],
+      ['max_property_age', 'Maximum age of property (years)', 'number'],
+      ['power_line_distance', 'Acceptable distance from high-voltage power lines', 'text'],
+      ['cemetery_distance', 'Acceptable distance from cemeteries', 'text'],
+      ['other_mandatory_criteria', 'Other mandatory criteria', 'textarea']
+    ]
+  },
+  {
+    title: 'Special requirements and red flags',
+    fields: [
+      ['must_haves', 'Must have', 'textarea'],
+      ['must_avoids', 'Must avoid', 'textarea'],
+      ['rejected_properties', 'Properties you have already rejected (please give addresses)', 'textarea'],
+      ['liked_missed_properties', 'Properties you liked but missed (please give addresses)', 'textarea']
+    ]
+  }
+];
+
+const MONEY_KEYS = ['price_min', 'price_max', 'rent_pw_min', 'rent_pw_max'];
 const money = (n) => (n === null || n === undefined || n === '' ? '—' : gbp(n));
 const hasValue = (p, spec) => p[spec.key] !== null && p[spec.key] !== undefined && p[spec.key] !== '';
+const filled = (v) => v !== null && v !== undefined && v !== '';
+
+function showRequirement(key, v) {
+  if (MONEY_KEYS.includes(key)) return gbp(v);
+  if (key === 'min_yield') return `${v}%`;
+  if (key === 'min_plot_size') return `${v} m²`;
+  if (key === 'max_property_age') return `${v} years`;
+  return v;
+}
 
 function makeCall(token) {
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -55,10 +114,7 @@ export default function ClientPortal({ token, user, onLogout }) {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-gradient-to-r from-blue-900 to-blue-800 text-white px-6 py-4 flex justify-between items-center">
-        <div
-          className="text-2xl font-bold cursor-pointer"
-          onClick={() => setView({ page: 'briefs' })}
-        >
+        <div className="text-2xl font-bold cursor-pointer" onClick={() => setView({ page: 'briefs' })}>
           Prime Atlas
         </div>
         <div className="flex items-center gap-4">
@@ -71,7 +127,24 @@ export default function ClientPortal({ token, user, onLogout }) {
 
       <main className="max-w-6xl mx-auto p-6">
         {view.page === 'briefs' && (
-          <BriefList call={call} onOpen={(id) => setView({ page: 'brief', id })} />
+          <BriefList
+            call={call}
+            notice={view.notice}
+            onNew={() => setView({ page: 'new' })}
+            onOpen={(id) => setView({ page: 'brief', id })}
+          />
+        )}
+        {view.page === 'new' && (
+          <NewSearch
+            call={call}
+            onCancel={() => setView({ page: 'briefs' })}
+            onDone={() =>
+              setView({
+                page: 'briefs',
+                notice: 'Thank you. We have received your search and will review it shortly.'
+              })
+            }
+          />
         )}
         {view.page === 'brief' && (
           <ClientBrief
@@ -94,7 +167,7 @@ export default function ClientPortal({ token, user, onLogout }) {
 }
 
 // ==================== MY SEARCHES ====================
-function BriefList({ call, onOpen }) {
+function BriefList({ call, notice, onNew, onOpen }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -106,21 +179,27 @@ function BriefList({ call, onOpen }) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Welcome, {data.client.name}</h1>
-        <p className="text-gray-600">Your searches, and the properties we have found for you.</p>
+      <div className="flex flex-wrap justify-between items-start gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Welcome, {data.client.name}</h1>
+          <p className="text-gray-600">Your searches, and the properties we have found for you.</p>
+        </div>
+        <button onClick={onNew} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-semibold">
+          + New search
+        </button>
       </div>
+
+      {notice && <div className="bg-green-50 border border-green-200 text-green-800 rounded-lg p-3 text-sm">{notice}</div>}
 
       {data.briefs.length === 0 ? (
         <Box>
-          <p className="text-gray-600">
-            Your first search is being set up. You will see it here as soon as it is ready.
-          </p>
+          <p className="text-gray-600">You have no searches yet. Click New search to tell us what you are looking for.</p>
         </Box>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {data.briefs.map((b) => {
             const [label, cls] = BRIEF_STATUS[b.status] || [b.status, ''];
+            const pending = b.status === 'pending_approval';
             return (
               <Box key={b.id} onClick={() => onOpen(b.id)} className="cursor-pointer hover:shadow-lg transition-shadow">
                 <div className="flex justify-between items-start mb-3">
@@ -131,17 +210,19 @@ function BriefList({ call, onOpen }) {
                   Budget: <strong>{money(b.price_min)} – {money(b.price_max)}</strong>
                 </p>
                 {b.preferred_areas && <p className="text-sm text-gray-600 mb-3">Areas: {b.preferred_areas}</p>}
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="px-2 py-1 bg-gray-100 rounded">{b.property_count} properties</span>
-                  {b.new_count > 0 && (
-                    <span className="px-2 py-1 bg-blue-600 text-white rounded">{b.new_count} new</span>
-                  )}
-                  {b.awaiting_count > 0 && (
-                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
-                      {b.awaiting_count} awaiting your decision
-                    </span>
-                  )}
-                </div>
+                {pending ? (
+                  <p className="text-xs text-yellow-800">We are reviewing this search.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="px-2 py-1 bg-gray-100 rounded">{b.property_count} properties</span>
+                    {b.new_count > 0 && <span className="px-2 py-1 bg-blue-600 text-white rounded">{b.new_count} new</span>}
+                    {b.awaiting_count > 0 && (
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
+                        {b.awaiting_count} awaiting your decision
+                      </span>
+                    )}
+                  </div>
+                )}
               </Box>
             );
           })}
@@ -151,7 +232,121 @@ function BriefList({ call, onOpen }) {
   );
 }
 
+// ==================== NEW SEARCH FORM ====================
+function NewSearch({ call, onCancel, onDone }) {
+  const [form, setForm] = useState({});
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      await call('/portal/briefs', { method: 'POST', body: JSON.stringify(form) });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <button onClick={onCancel} className="text-blue-600 hover:text-blue-800">← Back to your searches</button>
+      <h2 className="text-2xl font-bold">New search</h2>
+      <p className="text-gray-600 text-sm">
+        Tell us what you are looking for. Only the title is required, but the more you tell us, the better we can match you.
+      </p>
+
+      <form onSubmit={submit} className="space-y-6">
+        <Box>
+          <label className="text-xs text-gray-600">Search title *</label>
+          <input
+            className={inputClass}
+            placeholder="e.g. 4-bed family homes in Victoria"
+            value={form.title || ''}
+            onChange={set('title')}
+            required
+            minLength={3}
+            maxLength={120}
+          />
+        </Box>
+
+        {REQUIREMENT_GROUPS.map((group) => (
+          <Box key={group.title}>
+            <p className="font-semibold text-blue-600 mb-4">{group.title}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {group.fields.map(([key, label, type]) => (
+                <div key={key} className={type === 'textarea' ? 'md:col-span-2' : ''}>
+                  <label className="text-xs text-gray-600">{label}</label>
+                  {type === 'textarea' ? (
+                    <textarea className={inputClass} rows={3} maxLength={2000} value={form[key] || ''} onChange={set(key)} />
+                  ) : (
+                    <input
+                      className={inputClass}
+                      type={type}
+                      min={type === 'number' ? '0' : undefined}
+                      step={type === 'number' ? 'any' : undefined}
+                      maxLength={type === 'text' ? 200 : undefined}
+                      value={form[key] || ''}
+                      onChange={set(key)}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </Box>
+        ))}
+
+        {error && <p className="text-red-600 text-sm">{error}</p>}
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-semibold disabled:opacity-50"
+          >
+            {saving ? 'Submitting…' : 'Submit search'}
+          </button>
+          <button type="button" onClick={onCancel} className="px-6 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ==================== ONE SEARCH + ITS PROPERTIES ====================
+function Requirements({ brief }) {
+  const groups = REQUIREMENT_GROUPS
+    .map((g) => ({ ...g, fields: g.fields.filter(([key]) => filled(brief[key])) }))
+    .filter((g) => g.fields.length > 0);
+
+  if (groups.length === 0) return <p className="text-sm text-gray-500">No requirements were entered.</p>;
+
+  return (
+    <div className="space-y-5">
+      {groups.map((g) => (
+        <div key={g.title}>
+          <p className="font-semibold text-gray-800 mb-2 pb-1 border-b border-gray-100">{g.title}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {g.fields.map(([key, label, type]) => (
+              <div key={key} className={type === 'textarea' ? 'md:col-span-2' : ''}>
+                <p className="text-xs text-gray-500">{label}</p>
+                <p className="text-sm font-semibold text-gray-800 whitespace-pre-wrap">
+                  {showRequirement(key, brief[key])}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ClientBrief({ call, briefId, onBack, onOpen }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -171,6 +366,8 @@ function ClientBrief({ call, briefId, onBack, onOpen }) {
   }
 
   const { brief, properties } = data;
+  const pending = brief.status === 'pending_approval';
+  const [statusLabel, statusClass] = BRIEF_STATUS[brief.status] || [brief.status, ''];
   const shown = properties.filter((p) => filter === 'all' || p.client_decision === filter);
   const filters = [
     ['all', 'All'],
@@ -183,77 +380,82 @@ function ClientBrief({ call, briefId, onBack, onOpen }) {
   return (
     <div className="space-y-6">
       <button onClick={onBack} className="text-blue-600 hover:text-blue-800">← Back to your searches</button>
-      <h2 className="text-2xl font-bold">{brief.title || 'Your property search'}</h2>
+      <div className="flex flex-wrap justify-between items-start gap-3">
+        <h2 className="text-2xl font-bold">{brief.title || 'Your property search'}</h2>
+        <span className={`px-3 py-1 rounded text-sm font-semibold ${statusClass}`}>{statusLabel}</span>
+      </div>
+
+      {pending && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 rounded-lg p-4 text-sm">
+          We have received your search and are reviewing it. Properties will appear here once it has been approved.
+        </div>
+      )}
 
       <Box>
         <p className="font-semibold mb-3">Your requirements</p>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <Item label="Budget" value={`${money(brief.price_min)} – ${money(brief.price_max)}`} />
-          <Item label="Property type" value={brief.property_type || '—'} />
-          <Item label="Beds / Baths / Cars" value={`${brief.bedrooms ?? '—'} / ${brief.bathrooms ?? '—'} / ${brief.car_spaces ?? '—'}`} />
-          <Item label="Min plot size" value={brief.min_plot_size ? `${brief.min_plot_size} m²` : '—'} />
-          <Item label="Min yield" value={brief.min_yield ? `${brief.min_yield}%` : '—'} />
-          <Item label="Max property age" value={brief.max_property_age ? `${brief.max_property_age} yrs` : '—'} />
-        </div>
-        {brief.preferred_areas && <p className="text-sm mt-4"><span className="text-gray-500">Areas:</span> {brief.preferred_areas}</p>}
+        <Requirements brief={brief} />
       </Box>
 
-      <div className="flex flex-wrap gap-2">
-        {filters.map(([value, label]) => (
-          <button
-            key={value}
-            onClick={() => setFilter(value)}
-            className={`px-3 py-1 rounded-lg text-sm font-semibold ${
-              filter === value ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {!pending && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {filters.map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setFilter(value)}
+                className={`px-3 py-1 rounded-lg text-sm font-semibold ${
+                  filter === value ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
-      {shown.length === 0 ? (
-        <p className="text-gray-500">
-          {properties.length === 0
-            ? 'We are still searching. Properties will appear here as soon as they are ready for you.'
-            : 'No properties in this view.'}
-        </p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {shown.map((p) => {
-            const [label, cls] = DECISION[p.client_decision] || DECISION.pending;
-            return (
-              <Box key={p.id} onClick={() => onOpen(p.id)} className="cursor-pointer hover:shadow-lg transition-shadow">
-                {p.cover_url ? (
-                  <img src={p.cover_url} alt="" className="w-full h-40 object-cover rounded-lg mb-3" />
-                ) : (
-                  <div className="h-40 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-sm mb-3">
-                    No photo yet
-                  </div>
-                )}
-                <div className="flex justify-between items-start gap-2 mb-1">
-                  <h3 className="font-semibold text-blue-600">{p.property_title}</h3>
-                  {!p.viewed_at && (
-                    <span className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-semibold">New</span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-600 mb-2">📍 {p.address}</p>
-                <p className="font-semibold mb-2">
-                  {money(p.price)}
-                  {p.price_max ? ` – ${money(p.price_max)}` : ''}
-                </p>
-                <p className="text-sm text-gray-600 mb-3">
-                  🛏 {p.bedrooms ?? '—'} · 🛁 {p.bathrooms ?? '—'} · 🚗 {p.car_parking ?? '—'}
-                  {p.plot_size ? ` · ${p.plot_size} m²` : ''}
-                </p>
-                <span className={`px-2 py-1 rounded text-xs font-semibold ${cls}`}>{label}</span>
-                {p.client_comment && (
-                  <p className="mt-3 p-2 bg-gray-50 rounded text-sm text-gray-700">“{p.client_comment}”</p>
-                )}
-              </Box>
-            );
-          })}
-        </div>
+          {shown.length === 0 ? (
+            <p className="text-gray-500">
+              {properties.length === 0
+                ? 'We are still searching. Properties will appear here as soon as they are ready for you.'
+                : 'No properties in this view.'}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {shown.map((p) => {
+                const [label, cls] = DECISION[p.client_decision] || DECISION.pending;
+                return (
+                  <Box key={p.id} onClick={() => onOpen(p.id)} className="cursor-pointer hover:shadow-lg transition-shadow">
+                    {p.cover_url ? (
+                      <img src={p.cover_url} alt="" className="w-full h-40 object-cover rounded-lg mb-3" />
+                    ) : (
+                      <div className="h-40 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-sm mb-3">
+                        No photo yet
+                      </div>
+                    )}
+                    <div className="flex justify-between items-start gap-2 mb-1">
+                      <h3 className="font-semibold text-blue-600">{p.property_title}</h3>
+                      {!p.viewed_at && (
+                        <span className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-semibold">New</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">📍 {p.address}</p>
+                    <p className="font-semibold mb-2">
+                      {money(p.price)}
+                      {p.price_max ? ` – ${money(p.price_max)}` : ''}
+                    </p>
+                    <p className="text-sm text-gray-600 mb-3">
+                      🛏 {p.bedrooms ?? '—'} · 🛁 {p.bathrooms ?? '—'} · 🚗 {p.car_parking ?? '—'}
+                      {p.plot_size ? ` · ${p.plot_size} m²` : ''}
+                    </p>
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${cls}`}>{label}</span>
+                    {p.client_comment && (
+                      <p className="mt-3 p-2 bg-gray-50 rounded text-sm text-gray-700">“{p.client_comment}”</p>
+                    )}
+                  </Box>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -346,7 +548,6 @@ function ClientProperty({ call, propertyId, onBack }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT: details */}
         <div className="lg:col-span-2 space-y-6">
           {agentFields.length > 0 && (
             <Box>
@@ -371,7 +572,6 @@ function ClientProperty({ call, propertyId, onBack }) {
           </Box>
         </div>
 
-        {/* RIGHT: pictures and decision */}
         <div className="space-y-6">
           {cover?.url && (
             <a href={cover.url} target="_blank" rel="noreferrer">
@@ -427,6 +627,7 @@ function ClientProperty({ call, propertyId, onBack }) {
           </Box>
 
           <ChatPanel call={call} basePath={`/portal/properties/${propertyId}/chat`} />
+
           {location?.url && (
             <Box>
               <p className="font-semibold mb-3">Location</p>
