@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const supabase = require('../lib/supabase');
 const requireAuth = require('../middleware/auth');
-const { requireManager, requireStaff, requireClient } = require('../middleware/auth');
+const { requireStaff, requireClient } = require('../middleware/auth');
 const blockPendingForEmployees = require('../middleware/pendingGuard');
 const app = express();
 
@@ -27,10 +27,8 @@ app.use('/api/auth', require('../routes/auth'));
 // Any logged-in account
 app.get('/api/me', requireAuth, (req, res) => res.json(req.user));
 
-// Manager only
+// Manager only (the check happens inside team.js)
 app.use('/api/team', requireAuth, require('../routes/team'));
-app.use('/api/deals', requireAuth, requireManager);
-app.use('/api/dashboard', requireAuth, requireManager);
 
 // Client portal: client accounts only
 app.use(
@@ -48,13 +46,14 @@ app.use(
   requireAuth,
   requireStaff,
   blockPendingForEmployees,
+  require('../routes/overview'),
   require('../routes/clientLogins'),
   require('../routes/clients'),
   require('../routes/propertyPage'),
+  require('../routes/allProperties'),
   require('../routes/briefs'),
   require('../routes/clusters'),
-  require('../routes/chat'),
-  require('../routes/data')
+  require('../routes/chat')
 );
 
 module.exports = app;

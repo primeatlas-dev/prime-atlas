@@ -1,7 +1,7 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
-const { attachCovers } = require('../lib/media');
 const { requireManager } = require('../middleware/auth');
+const { attachCovers } = require('../lib/media');
 
 const router = express.Router();
 
@@ -23,14 +23,11 @@ function pick(body, fields) {
 const fail = (res, error) => res.status(500).json({ error: error.message });
 const isManager = (req) => req.user.role === 'manager';
 
-// Managers can open any brief. Employees only the briefs assigned to them.
+// Managers can open any brief. Employees only briefs assigned to them that are not pending approval.
 async function loadBrief(req, id) {
   const { data: brief } = await supabase.from('briefs').select('*').eq('id', id).single();
   if (!brief) return null;
-  if (
-    !isManager(req) &&
-    (brief.assigned_to !== req.user.id || brief.status === 'pending_approval')
-  ) {
+  if (!isManager(req) && (brief.assigned_to !== req.user.id || brief.status === 'pending_approval')) {
     return null;
   }
   return brief;
@@ -51,12 +48,12 @@ router.get('/briefs/:id', async (req, res) => {
     supabase.from('users').select('id, name')
   ]);
   if (propsRes.error) return fail(res, propsRes.error);
-    await attachCovers(propsRes.data);
+  await attachCovers(propsRes.data);
 
-  const names = Object.fromEntries((usersRes.data || []).map(u => [u.id, u.name]));
+  const names = Object.fromEntries((usersRes.data || []).map((u) => [u.id, u.name]));
   const client = clientRes.data;
 
-  const properties = propsRes.data.map(p => {
+  const properties = propsRes.data.map((p) => {
     const { client_confirmed_at, seller_confirmed_at, ...safe } = p;
     const base = isManager(req) ? p : safe;
     return {
@@ -67,7 +64,10 @@ router.get('/briefs/:id', async (req, res) => {
   });
 
   if (!isManager(req)) {
-    const { commission_amount, fee_status, fee_paid_at, approved_by, approved_at, ...safeBrief } = brief;
+    const {
+      commission_amount, fee_status, fee_paid_at, approved_by, approved_at,
+      submitted_by_client, submitted_at, ...safeBrief
+    } = brief;
     return res.json({
       brief: safeBrief,
       client: {
@@ -91,7 +91,7 @@ router.post('/briefs/:id/properties', async (req, res) => {
   const brief = await loadBrief(req, req.params.id);
   if (!brief) return res.status(404).json({ error: 'Brief not found' });
   if (brief.status === 'pending_approval') {
-    return res.status(403).json({ error: 'Approve this brief before adding properties' });
+    return res.status(400).json({ error: 'Approve the brief before adding properties to it' });
   }
 
   const fields = pick(req.body, PROPERTY_FIELDS);
@@ -113,44 +113,19 @@ router.post('/briefs/:id/properties', async (req, res) => {
   res.status(201).json(data);
 });
 
-// ---------- EDIT A PROPERTY ----------
-router.patch('/properties/:id', async (req, res) => {
-  const { data: property } = await supabase
-    .from('properties')
-    .select('*')
-    .eq('id', req.params.id)
-    .single();
-  if (!property) return res.status(404).json({ error: 'Property not found' });
-
-  if (!isManager(req)) {
-    const brief = property.brief_id ? await loadBrief(req, property.brief_id) : null;
-    if (!brief) return res.status(404).json({ error: 'Property not found' });
-    if (property.approval_status === 'approved') {
-      return res.status(403).json({ error: 'Approved properties can only be changed by the manager' });
-    }
-  }
-
-  const fields = pick(
-    req.body,
-    isManager(req) ? [...PROPERTY_FIELDS, 'client_comment'] : PROPERTY_FIELDS
-  );
-  // An employee fixing a rejected property sends it back for review
-  if (!isManager(req) && property.approval_status === 'rejected') {
-    fields.approval_status = 'review';
-  }
-
-  const { data, error } = await supabase
-    .from('properties')
-    .update(fields)
-    .eq('id', property.id)
-    .select()
-    .single();
-  if (error) return fail(res, error);
-  res.json(data);
-});
-
 // ---------- MANAGER: APPROVE / REJECT / BACK TO REVIEW ----------
 router.post('/properties/:id/decision', requireManager, async (req, res) => {
+  const { data: property } = await supabase
+    .from('properties')
+    .select('id, brief_id')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (!property) return res.status(404).json({ error: 'Property not found' });
+
+  if (req.body.action === 'approve' && !property.brief_id) {
+    return res.status(400).json({ error: 'Assign this property to a brief before approving it' });
+  }
+
   const updates = {
     approve: {
       approval_status: 'approved',
@@ -165,7 +140,7 @@ router.post('/properties/:id/decision', requireManager, async (req, res) => {
   const { data, error } = await supabase
     .from('properties')
     .update(updates)
-    .eq('id', req.params.id)
+    .eq('id', property.id)
     .select()
     .single();
   if (error) return fail(res, error);

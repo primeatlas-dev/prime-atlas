@@ -41,7 +41,8 @@ const fail = (res, error) => res.status(500).json({ error: error.message });
 const isManager = (req) => req.user.role === 'manager';
 const canEdit = (req, property) => isManager(req) || property.approval_status !== 'approved';
 
-// Managers can open any property. Employees only properties in briefs assigned to them.
+// Managers can open any property. Employees can open properties in briefs assigned to them
+// (never a pending brief), and properties that are not in a brief yet (the shared pool).
 async function loadAccessible(req, propertyId) {
   const { data: property } = await supabase
     .from('properties')
@@ -50,22 +51,20 @@ async function loadAccessible(req, propertyId) {
     .single();
   if (!property) return {};
 
-  let brief = null;
-  if (property.brief_id) {
-    const { data } = await supabase
-      .from('briefs')
-      .select('id, brief_number, title, client_id, assigned_to, status')
-      .eq('id', property.brief_id)
-      .single();
-    brief = data;
-  }
+  if (!property.brief_id) return { property, brief: null };
+
+  const { data: brief } = await supabase
+    .from('briefs')
+    .select('id, brief_number, title, client_id, assigned_to, status')
+    .eq('id', property.brief_id)
+    .single();
   if (
     !isManager(req) &&
     (!brief || brief.assigned_to !== req.user.id || brief.status === 'pending_approval')
   ) {
     return {};
   }
-  return { property, brief };
+  return { property, brief: brief || null };
 }
 
 // ---------- FULL PROPERTY PAGE ----------
