@@ -1,6 +1,6 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
-const { fetchThread, addMessage, markRead, summarise } = require('../lib/chat');
+const { fetchThread, addMessage, markRead, summarise, chatUploadUrl } = require('../lib/chat');
 
 const router = express.Router();
 const fail = (res, error) => res.status(500).json({ error: error.message });
@@ -8,7 +8,7 @@ const isManager = (req) => req.user.role === 'manager';
 
 const NOT_OPEN = 'Chat opens once the manager approves the property';
 
-// Managers can open any chat. Employees only chats in briefs assigned to them.
+// Managers can open any chat. Employees only chats in briefs assigned to them (never pending ones).
 async function staffAccess(req, propertyId) {
   const { data: property } = await supabase
     .from('properties')
@@ -22,8 +22,10 @@ async function staffAccess(req, propertyId) {
     .select('id, client_id, assigned_to, status')
     .eq('id', property.brief_id)
     .single();
-  if (!brief || brief.status === 'pending_approval') return null;
-  if (!isManager(req) && brief.assigned_to !== req.user.id) return null;
+  if (!brief) return null;
+  if (!isManager(req) && (brief.assigned_to !== req.user.id || brief.status === 'pending_approval')) {
+    return null;
+  }
 
   const { data: client } = await supabase
     .from('clients')
@@ -41,11 +43,10 @@ async function staffAccess(req, propertyId) {
 // ---------- LIST OF CHATS (approved properties only) ----------
 router.get('/chats', async (req, res) => {
   try {
-    let briefQuery = supabase
-      .from('briefs')
-      .select('id, brief_number, client_id')
-      .neq('status', 'pending_approval');
-    if (!isManager(req)) briefQuery = briefQuery.eq('assigned_to', req.user.id);
+    let briefQuery = supabase.from('briefs').select('id, brief_number, client_id');
+    if (!isManager(req)) {
+      briefQuery = briefQuery.eq('assigned_to', req.user.id).neq('status', 'pending_approval');
+    }
     const { data: briefs, error } = await briefQuery;
     if (error) return fail(res, error);
     if (!briefs.length) return res.json([]);
@@ -121,9 +122,30 @@ router.post('/properties/:id/chat', async (req, res) => {
       return res.status(403).json({ error: NOT_OPEN });
     }
 
-    const result = await addMessage(req.user, access.property.id, req.body.body);
+    const result = await addMessage(req.user, access.property.id, req.body.body, req.body.attachment);
     if (result.error) return res.status(400).json({ error: result.error });
     res.status(201).json({ ok: true });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ---------- ATTACHMENT UPLOAD LINK ----------
+router.post('/properties/:id/chat/upload-url', async (req, res) => {
+  try {
+    const access = await staffAccess(req, req.params.id);
+    if (!access) return res.status(404).json({ error: 'Chat not found' });
+    if (access.property.approval_status !== 'approved') {
+      return res.status(403).json({ error: NOT_OPEN });
+    }
+
+    const result = await chatUploadUrl(
+      access.property.id,
+      String(req.body.content_type || ''),
+      Number(req.body.size)
+    );
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
   } catch (e) {
     fail(res, e);
   }

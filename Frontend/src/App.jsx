@@ -7,6 +7,8 @@ import Dashboard from './Dashboard';
 import AllProperties from './AllProperties';
 import TeamPage from './TeamPage';
 import FeesPage from './Fees';
+import FeeStrip from './FeeStrip';
+import ChangePassword from './ChangePassword';
 import NotificationBell from './NotificationBell';
 import { API_URL, makeCall } from './api';
 
@@ -57,7 +59,7 @@ export default function PrimeAtlasApp() {
         }
       })
       .catch((e) => {
-        if (/not logged in|invalid or expired|not active/i.test(e.message)) handleLogout();
+        if (/not logged in|invalid or expired|not active|log in again/i.test(e.message)) handleLogout();
       });
   }, [call]);
 
@@ -155,12 +157,15 @@ export default function PrimeAtlasApp() {
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 truncate">{titles[page.name] || ''}</h1>
           </div>
           <div className="flex items-center space-x-2 sm:space-x-4">
-            <NotificationBell call={call} onNavigate={navigate} />
+            <NotificationBell call={call} onNavigate={navigate} isManager={isManager} />
             {user && (
               <span className="hidden md:inline text-sm text-gray-600">
                 {user.name || user.email} · <span className="capitalize">{user.role}</span>
               </span>
             )}
+            <div className="hidden sm:block">
+              <ChangePassword call={call} label="Password" />
+            </div>
             <button
               onClick={handleLogout}
               className="flex items-center space-x-2 px-3 sm:px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
@@ -173,7 +178,10 @@ export default function PrimeAtlasApp() {
 
         <div className="flex-1 overflow-auto p-3 sm:p-6">
           {page.name === 'dashboard' && (
-            <Dashboard key={page.n} token={token} user={user} isManager={isManager} onNavigate={navigate} />
+            <div key={page.n}>
+              {isManager && <FeeStrip call={call} onNavigate={navigate} />}
+              <Dashboard token={token} user={user} isManager={isManager} onNavigate={navigate} />
+            </div>
           )}
           {page.name === 'clients' && <ClientsPage key={page.n} token={token} isManager={isManager} />}
           {page.name === 'properties' && (

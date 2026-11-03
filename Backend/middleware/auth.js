@@ -16,7 +16,7 @@ async function requireAuth(req, res, next) {
   // Check the database on every request, so deactivated users are locked out immediately
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, name, role, active')
+    .select('id, email, name, role, active, tokens_valid_after')
     .eq('id', payload.id)
     .single();
 
@@ -24,7 +24,16 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Account not active' });
   }
 
-  req.user = user;
+  // A password change or reset ends every older login on that account
+  if (user.tokens_valid_after) {
+    const validFrom = Math.floor(new Date(user.tokens_valid_after).getTime() / 1000);
+    if (!payload.iat || payload.iat < validFrom) {
+      return res.status(401).json({ error: 'Please log in again' });
+    }
+  }
+
+  const { tokens_valid_after, ...safeUser } = user;
+  req.user = safeUser;
   next();
 }
 
@@ -43,7 +52,7 @@ function requireStaff(req, res, next) {
   next();
 }
 
-// Client accounts only (used by the client portal later)
+// Client accounts only (used by the client portal)
 function requireClient(req, res, next) {
   if (req.user?.role !== 'client') {
     return res.status(403).json({ error: 'Clients only' });

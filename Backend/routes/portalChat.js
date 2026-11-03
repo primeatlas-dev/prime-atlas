@@ -1,6 +1,6 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
-const { fetchThread, addMessage, markRead } = require('../lib/chat');
+const { fetchThread, addMessage, markRead, chatUploadUrl } = require('../lib/chat');
 
 const router = express.Router();
 const fail = (res, error) => res.status(500).json({ error: error.message });
@@ -53,9 +53,26 @@ router.post('/properties/:id/chat', async (req, res) => {
     const access = await clientAccess(req, req.params.id);
     if (!access) return res.status(404).json({ error: 'Chat not found' });
 
-    const result = await addMessage(req.user, access.property.id, req.body.body);
+    const result = await addMessage(req.user, access.property.id, req.body.body, req.body.attachment);
     if (result.error) return res.status(400).json({ error: result.error });
     res.status(201).json({ ok: true });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/properties/:id/chat/upload-url', async (req, res) => {
+  try {
+    const access = await clientAccess(req, req.params.id);
+    if (!access) return res.status(404).json({ error: 'Chat not found' });
+
+    const result = await chatUploadUrl(
+      access.property.id,
+      String(req.body.content_type || ''),
+      Number(req.body.size)
+    );
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
   } catch (e) {
     fail(res, e);
   }

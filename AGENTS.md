@@ -129,3 +129,14 @@ Use three kinds of login: manager, employee and client. Private windows in the s
 - `routes/assign.js` is mounted before `routes/allProperties.js`, so its `POST /properties/:id/assign` is the one used (it also writes the history). The older assign route inside `allProperties.js` is dead code and can be removed.
 - The phone layout lives in `Frontend/src/App.jsx` (slide-in menu, compact header). Other pages rely on stacking grids and horizontally scrolling tables.
 - Not built yet: chat attachments, fee notifications on the bell and dashboard, search polish, a security review, backups, and paid hosting.
+
+## Update: hardening, accounts, chat files and client data tools
+
+- **Login throttling:** `routes/auth.js` locks an email after 5 failed attempts in 15 minutes (and an IP after 25), using the `login_attempts` table. A successful login clears that email's failures.
+- **Token invalidation:** `users.tokens_valid_after` is set whenever a password changes (`routes/account.js`) or a manager resets an employee's password (`routes/team.js`). `middleware/auth.js` rejects any token issued before it ("Please log in again").
+- `api/index.js` uses helmet, a 100 KB JSON limit, and CORS that refuses everyone if `FRONTEND_URL` is missing.
+- **Chat attachments:** photos and PDFs up to 10 MB, in the private `property-media` bucket under `chat/<property id>/`. Original file names are never stored or sent, so a file name cannot reveal who someone is. Uploads use signed upload links created by `chatUploadUrl()` in `lib/chat.js` after the same access checks as sending a message.
+- **Client data tools** (`routes/clientData.js`, manager only): export all data for a client, and permanent deletion of the client, login, briefs, clusters, properties, media files, chat files and messages. Deletion needs the client's full name typed to confirm.
+- Fee alerts: `GET /api/fees/summary` (manager only) feeds the bell and a dashboard strip.
+- `Backend/scripts/backup.js` saves all tables to the gitignored `backups/` folder. It does not include Storage files.
+- Employees can't reset their own password if they forget it; the manager resets it in Team.

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SECTIONS, AGENT_FIELDS, FieldView, gbp } from './PropertyPage';
 import ChatPanel from './ChatPanel';
+import ChangePassword from './ChangePassword';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -119,6 +120,7 @@ export default function ClientPortal({ token, user, onLogout }) {
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-blue-100">{user?.name}</span>
+          <ChangePassword call={call} light label="Password" />
           <button onClick={onLogout} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-sm">
             Logout
           </button>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
 import BriefPage from './BriefPage';
 import ClientLogin from './ClientLogin';
+import ClientDataTools from './ClientDataTools';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -324,6 +325,7 @@ function ClientDetail({ token, clientId, isManager, onBack }) {
               {client.phone && <p>📱 {client.phone}</p>}
               {client.notes && <p className="text-gray-600 whitespace-pre-wrap">{client.notes}</p>}
               <ClientLogin call={call} client={client} />
+              <ClientDataTools call={call} client={client} onDeleted={onBack} />
             </div>
           )}
         </Box>

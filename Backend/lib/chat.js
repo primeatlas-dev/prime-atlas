@@ -1,15 +1,27 @@
+const crypto = require('crypto');
 const supabase = require('./supabase');
+const { BUCKET, signPaths } = require('./media');
 
 const MAX_LENGTH = 2000;
+const PLACEHOLDER = '📎 Attachment';
+const FILE_TYPES = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'application/pdf': 'pdf'
+};
+const MAX_BYTES = 10 * 1024 * 1024;
 
 // How each message is labelled depends on who is reading:
 //  - clients only ever see "Prime Atlas Team" for staff messages
 //  - employees see "Client N" for client messages
 //  - the manager sees the client's real name
+// Original file names are never sent, so a file name can't reveal who someone is.
 async function fetchThread(propertyId, viewer, clientLabel) {
   const { data, error } = await supabase
     .from('messages')
-    .select('id, sender_id, sender_role, body, created_at')
+    .select('id, sender_id, sender_role, body, attachment_path, attachment_type, created_at')
     .eq('property_id', propertyId)
     .order('created_at', { ascending: false })
     .limit(300);
@@ -25,6 +37,8 @@ async function fetchThread(propertyId, viewer, clientLabel) {
     }
   }
 
+  const urls = await signPaths(rows.map((m) => m.attachment_path));
+
   return rows.map((m) => {
     const mine = m.sender_id === viewer.id;
     let from;
@@ -33,21 +47,58 @@ async function fetchThread(propertyId, viewer, clientLabel) {
     else if (m.sender_role === 'client') from = clientLabel;
     else from = names[m.sender_id] || 'Team';
     // Never send sender ids to the browser
-    return { id: m.id, mine, from, body: m.body, created_at: m.created_at };
+    return {
+      id: m.id,
+      mine,
+      from,
+      body: m.attachment_path && m.body === PLACEHOLDER ? '' : m.body,
+      attachment:
+        m.attachment_path && urls[m.attachment_path]
+          ? { url: urls[m.attachment_path], type: m.attachment_type }
+          : null,
+      created_at: m.created_at
+    };
   });
 }
 
-async function addMessage(viewer, propertyId, body) {
+// A one-time link so the browser can upload a chat file straight to private storage
+async function chatUploadUrl(propertyId, contentType, size) {
+  if (!FILE_TYPES[contentType]) {
+    return { error: 'Only photos (JPG, PNG, WebP, GIF) and PDFs can be sent in chat' };
+  }
+  if (!size || size > MAX_BYTES) return { error: 'Files must be under 10 MB' };
+
+  const path = `chat/${propertyId}/${crypto.randomUUID()}.${FILE_TYPES[contentType]}`;
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(path);
+  if (error) throw error;
+  return { path: data.path, token: data.token };
+}
+
+async function addMessage(viewer, propertyId, body, attachment) {
   const text = String(body || '').trim();
-  if (!text) return { error: 'Write a message first' };
+
+  let file = null;
+  if (attachment) {
+    const path = String(attachment.path || '');
+    const type = String(attachment.type || '');
+    if (!path.startsWith(`chat/${propertyId}/`) || path.includes('..') || !FILE_TYPES[type]) {
+      return { error: 'That attachment is not allowed' };
+    }
+    file = { path, type };
+  }
+
+  if (!text && !file) return { error: 'Write a message first' };
   if (text.length > MAX_LENGTH) {
     return { error: `Messages can be up to ${MAX_LENGTH} characters` };
   }
+
   const { error } = await supabase.from('messages').insert({
     property_id: propertyId,
     sender_id: viewer.id,
     sender_role: viewer.role,
-    body: text
+    body: text || PLACEHOLDER,
+    attachment_path: file ? file.path : null,
+    attachment_type: file ? file.type : null
   });
   if (error) throw error;
   return {};
@@ -94,4 +145,4 @@ async function summarise(viewer, propertyIds) {
   return out;
 }
 
-module.exports = { fetchThread, addMessage, markRead, summarise };
+module.exports = { fetchThread, addMessage, markRead, summarise, chatUploadUrl };

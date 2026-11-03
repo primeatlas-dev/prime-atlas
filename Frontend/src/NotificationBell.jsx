@@ -8,20 +8,34 @@ const ITEMS = {
   rejected_to_fix: { one: 'rejected property to fix', many: 'rejected properties to fix', page: 'properties', params: { status: 'rejected' } },
   overdue_briefs: { one: 'overdue brief', many: 'overdue briefs', page: 'dashboard' },
   unassigned_briefs: { one: 'active brief with no employee', many: 'active briefs with no employee', page: 'dashboard' },
+  fees_due: { one: 'fee due to be collected', many: 'fees due to be collected', page: 'fees' },
   unread_chats: { one: 'unread chat message', many: 'unread chat messages', page: 'chats' }
 };
 
-export default function NotificationBell({ call, onNavigate }) {
+export default function NotificationBell({ call, onNavigate, isManager }) {
   const [data, setData] = useState({ total: 0, items: [] });
   const [open, setOpen] = useState(false);
   const box = useRef(null);
 
   useEffect(() => {
     let alive = true;
-    const load = () =>
-      call('/notifications')
-        .then((d) => alive && setData(d))
-        .catch(() => {});
+    const load = async () => {
+      try {
+        const [n, f] = await Promise.all([
+          call('/notifications'),
+          isManager ? call('/fees/summary').catch(() => null) : Promise.resolve(null)
+        ]);
+        const items = [...n.items];
+        let total = n.total;
+        if (f && f.due_count > 0) {
+          items.push({ key: 'fees_due', count: f.due_count });
+          total += f.due_count;
+        }
+        if (alive) setData({ total, items });
+      } catch (e) {
+        // ignore
+      }
+    };
     load();
     const timer = setInterval(() => {
       if (!document.hidden) load();
@@ -30,7 +44,7 @@ export default function NotificationBell({ call, onNavigate }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [call]);
+  }, [call, isManager]);
 
   useEffect(() => {
     const close = (e) => {
@@ -42,11 +56,7 @@ export default function NotificationBell({ call, onNavigate }) {
 
   return (
     <div className="relative" ref={box}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="relative p-2 hover:bg-gray-100 rounded-lg"
-        title="Notifications"
-      >
+      <button onClick={() => setOpen(!open)} className="relative p-2 hover:bg-gray-100 rounded-lg" title="Notifications">
         <Bell size={22} />
         {data.total > 0 && (
           <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-600 text-white text-xs rounded-full flex items-center justify-center">
