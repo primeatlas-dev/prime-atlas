@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
 import PropertyPage from './PropertyPage';
 import ClustersTab from './ClustersTab';
+import { MatchBadge } from './Match';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -220,7 +221,7 @@ function PropertiesTab({ call, brief, client, properties, isManager, reload, onO
   };
 
   const q = search.trim().toLowerCase();
-  const shown = properties.filter(
+  const shown = [...properties].sort((a, b) => (b.match?.score ?? -1) - (a.match?.score ?? -1)).filter(
     (p) =>
       (filter === 'all' || p.approval_status === filter) &&
       (!q ||
@@ -324,6 +325,7 @@ function PropertyCard({ p, brief, client, isManager, onOpen, decide }) {
           </div>
         )}
         <span className={`absolute top-2 right-2 px-2 py-1 rounded text-xs font-semibold ${cls}`}>{label}</span>
+        <MatchBadge match={p.match} floating />
         {p.client_decision === 'rejected' && (
           <span
             title="Client rejected this property"

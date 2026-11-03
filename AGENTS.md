@@ -110,3 +110,22 @@ Use three kinds of login: manager, employee and client. Private windows in the s
 - A client sees only their own pending brief, showing just the requirements they entered. It never returns properties.
 - A pending brief can only change through the manager's Approve (becomes active) or Decline (becomes closed). It cannot be assigned until it is approved, and an active brief never goes back to pending.
 - Client submissions accept only an allow-list of fields, and never `status`, `client_id`, `assigned_to`, commission, fee or approval fields.
+
+## Update: dashboards, All Properties and the shared pool
+
+- Old routes are **gone**. `Backend/routes/data.js` is no longer mounted, so `/api/properties`, `/api/deals`, `/api/dashboard` and `/api/buying-agents` do not exist. They used to let any employee list properties from other employees' briefs. Do not bring them back.
+- New staff routes: `overview.js` (`/overview`, `/notifications`) and `allProperties.js` (`/all-properties`, `/assignable-briefs`, `/pool-properties`, `/properties/:id/assign`). `Frontend/src/api.js` holds the shared `makeCall` helper.
+- **The pool** is properties with `brief_id = null`. All staff can see and edit them. They have no client, no chat and no portal access, and **cannot be approved**.
+- Assigning a pool property to a brief always resets it to `review` and clears every client field. The manager approves it for that client. An employee can only assign to their own active briefs. The manager can assign to any active brief.
+- Employees only ever see "Client N" on the dashboard, in All Properties and in notifications.
+- Dashboards read up to about 1000 rows per query. When the data grows, move the counts into SQL views.
+- Not built yet: match score (employee side only), fee tracker (manager only), activity history, chat attachments, phone layout.
+
+## Update: match score, fee tracker, history and phone layout
+
+- **Match score** (`Backend/lib/matchScore.js`) is STAFF ONLY. It is added in `routes/briefs.js` (card summary) and `routes/propertyPage.js` (full breakdown). It must never appear in `routes/portal.js` or any client response.
+- **Fees:** `Backend/lib/fees.js` `syncFee()` marks a brief's fee as `due` when a property is approved AND client-confirmed AND seller-confirmed, and never changes a `paid` fee. The manager sets seller confirmation (`POST /properties/:id/seller-confirmation`) and payment (`POST /briefs/:id/fee`) in `routes/fees.js`. All fee routes are manager only. Employees never see commission, fee status or seller confirmation, including in the history feed.
+- **History:** the `property_activity` table is written by `lib/activity.js` `logActivity()`. Client events (viewed, decision) are read straight from the property record. `activityFeed()` hides `seller_confirmed` and `seller_unconfirmed` from employees.
+- `routes/assign.js` is mounted before `routes/allProperties.js`, so its `POST /properties/:id/assign` is the one used (it also writes the history). The older assign route inside `allProperties.js` is dead code and can be removed.
+- The phone layout lives in `Frontend/src/App.jsx` (slide-in menu, compact header). Other pages rely on stacking grids and horizontally scrolling tables.
+- Not built yet: chat attachments, fee notifications on the bell and dashboard, search polish, a security review, backups, and paid hosting.

@@ -41,6 +41,7 @@ app.use(
 
 // Staff routes (managers and employees). Client accounts are blocked here,
 // and employees are blocked from briefs that are still awaiting approval.
+// Order matters: assign.js comes before allProperties.js so its version of "assign" is used.
 app.use(
   '/api',
   requireAuth,
@@ -49,7 +50,9 @@ app.use(
   require('../routes/overview'),
   require('../routes/clientLogins'),
   require('../routes/clients'),
+  require('../routes/fees'),
   require('../routes/propertyPage'),
+  require('../routes/assign'),
   require('../routes/allProperties'),
   require('../routes/briefs'),
   require('../routes/clusters'),

@@ -2,6 +2,8 @@ const express = require('express');
 const crypto = require('crypto');
 const supabase = require('../lib/supabase');
 const { BUCKET, signPaths } = require('../lib/media');
+const { scoreProperty } = require('../lib/matchScore');
+const { logActivity, activityFeed } = require('../lib/activity');
 
 const router = express.Router();
 
@@ -28,6 +30,7 @@ const EXT = {
 };
 const MAX_BYTES = 50 * 1024 * 1024;
 const KINDS = ['cover', 'location', 'extra'];
+const KIND_TEXT = { cover: 'the cover photo', location: 'the location photo', extra: 'an extra file' };
 
 function pick(body, fields) {
   const out = {};
@@ -40,6 +43,7 @@ function pick(body, fields) {
 const fail = (res, error) => res.status(500).json({ error: error.message });
 const isManager = (req) => req.user.role === 'manager';
 const canEdit = (req, property) => isManager(req) || property.approval_status !== 'approved';
+const humanise = (key) => key.replace(/_/g, ' ');
 
 // Managers can open any property. Employees can open properties in briefs assigned to them
 // (never a pending brief), and properties that are not in a brief yet (the shared pool).
@@ -55,7 +59,7 @@ async function loadAccessible(req, propertyId) {
 
   const { data: brief } = await supabase
     .from('briefs')
-    .select('id, brief_number, title, client_id, assigned_to, status')
+    .select('*')
     .eq('id', property.brief_id)
     .single();
   if (
@@ -87,6 +91,7 @@ router.get('/properties/:id/full', async (req, res) => {
   const names = Object.fromEntries((usersRes.data || []).map((u) => [u.id, u.name]));
   const media = mediaRes.data || [];
   const urls = await signPaths(media.map((m) => m.storage_path));
+  const activity = await activityFeed(property, isManager(req), names);
 
   const { client_confirmed_at, seller_confirmed_at, ...safe } = property;
   const base = isManager(req) ? property : safe;
@@ -98,7 +103,7 @@ router.get('/properties/:id/full', async (req, res) => {
       created_by_name: names[property.created_by] || null,
       approved_by_name: names[property.approved_by] || null
     },
-    brief,
+    brief: brief ? { id: brief.id, brief_number: brief.brief_number, title: brief.title } : null,
     client: c
       ? { client_number: c.client_number, name: isManager(req) ? c.name : `Client ${c.client_number}` }
       : null,
@@ -110,7 +115,13 @@ router.get('/properties/:id/full', async (req, res) => {
       created_at: m.created_at,
       url: urls[m.storage_path] || null
     })),
-    can_edit: canEdit(req, property)
+    can_edit: canEdit(req, property),
+    match: brief ? scoreProperty(property, brief) : null,
+    activity,
+    fee:
+      isManager(req) && brief
+        ? { commission_amount: brief.commission_amount, fee_status: brief.fee_status }
+        : null
   });
 });
 
@@ -131,12 +142,17 @@ router.patch('/properties/:id', async (req, res) => {
     fields.client_decision_at = new Date().toISOString();
   }
   // An employee fixing a rejected property sends it back for review
-  if (!isManager(req) && property.approval_status === 'rejected') {
-    fields.approval_status = 'review';
-  }
+  const backToReview = !isManager(req) && property.approval_status === 'rejected';
+  if (backToReview) fields.approval_status = 'review';
+
   if (Object.keys(fields).length === 0) {
     return res.status(400).json({ error: 'Nothing to change' });
   }
+
+  const skip = ['client_decision_at', 'approval_status'];
+  const changed = Object.keys(fields).filter(
+    (k) => !skip.includes(k) && String(property[k] ?? '') !== String(fields[k] ?? '')
+  );
 
   const { data, error } = await supabase
     .from('properties')
@@ -145,6 +161,14 @@ router.patch('/properties/:id', async (req, res) => {
     .select()
     .single();
   if (error) return fail(res, error);
+
+  if (changed.length) {
+    const list = changed.slice(0, 8).map(humanise).join(', ');
+    await logActivity(property.id, req.user.id, 'edited', changed.length > 8 ? `${list} …` : list);
+  }
+  if (backToReview) {
+    await logActivity(property.id, req.user.id, 'review', 'Fixed and sent back for review');
+  }
   res.json(data);
 });
 
@@ -215,6 +239,9 @@ router.post('/properties/:id/media', async (req, res) => {
     .select()
     .single();
   if (error) return fail(res, error);
+
+  const what = kind === 'extra' && file_name ? `an extra file (${String(file_name).slice(0, 60)})` : KIND_TEXT[kind];
+  await logActivity(property.id, req.user.id, 'media_added', what);
   res.status(201).json(data);
 });
 
@@ -235,6 +262,7 @@ router.delete('/media/:id', async (req, res) => {
 
   await supabase.storage.from(BUCKET).remove([media.storage_path]);
   await supabase.from('property_media').delete().eq('id', media.id);
+  await logActivity(property.id, req.user.id, 'media_removed', KIND_TEXT[media.kind] || 'a file');
   res.json({ ok: true });
 });
 

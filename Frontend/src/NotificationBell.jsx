@@ -56,7 +56,7 @@ export default function NotificationBell({ call, onNavigate }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
+        <div className="fixed sm:absolute right-3 sm:right-0 top-16 sm:top-auto mt-2 w-[calc(100vw-1.5rem)] sm:w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
           <p className="px-4 py-3 font-semibold border-b border-gray-100">Notifications</p>
           {data.items.length === 0 ? (
             <p className="px-4 py-4 text-sm text-gray-500">You are all caught up.</p>

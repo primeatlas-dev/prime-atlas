@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getSupabase } from './supabaseClient';
 import ChatPanel from './ChatPanel';
+import PropertyInsights from './PropertyInsights';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const BUCKET = 'property-media';
@@ -571,6 +572,7 @@ export default function PropertyPage({ token, propertyId, isManager, onBack }) {
         <div className="space-y-6">
           {uploadError && <p className="text-red-600 text-sm">{uploadError}</p>}
           {busy && <p className="text-blue-600 text-sm">Uploading…</p>}
+          <PropertyInsights data={data} isManager={isManager} call={call} propertyId={propertyId} reload={load} />
           {p.approval_status === 'approved' && (
             <ChatPanel call={call} basePath={`/properties/${propertyId}/chat`} />
           )}

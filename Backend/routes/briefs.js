@@ -2,6 +2,9 @@ const express = require('express');
 const supabase = require('../lib/supabase');
 const { requireManager } = require('../middleware/auth');
 const { attachCovers } = require('../lib/media');
+const { scoreProperty, matchSummary } = require('../lib/matchScore');
+const { logActivity } = require('../lib/activity');
+const { syncFee } = require('../lib/fees');
 
 const router = express.Router();
 
@@ -58,6 +61,7 @@ router.get('/briefs/:id', async (req, res) => {
     const base = isManager(req) ? p : safe;
     return {
       ...base,
+      match: matchSummary(scoreProperty(p, brief)),
       created_by_name: names[p.created_by] || null,
       approved_by_name: names[p.approved_by] || null
     };
@@ -144,6 +148,10 @@ router.post('/properties/:id/decision', requireManager, async (req, res) => {
     .select()
     .single();
   if (error) return fail(res, error);
+
+  const logAs = { approve: 'approved', reject: 'rejected', review: 'review' }[req.body.action];
+  await logActivity(property.id, req.user.id, logAs, null);
+  await syncFee(property.brief_id);
   res.json(data);
 });
 
