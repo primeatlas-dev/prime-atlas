@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
 import PropertyPage from './PropertyPage';
 import ClustersTab from './ClustersTab';
+import BriefChanges from './BriefChanges';
 import { MatchBadge } from './Match';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -136,7 +137,12 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
           <p className="text-sm text-gray-500">
             {isManager ? `${client.name} · Client #${client.client_number}` : client.name} · Brief #{brief.brief_number}
           </p>
-          <h2 className="text-2xl font-bold">{brief.title || 'Untitled brief'}</h2>
+          <h2 className="text-2xl font-bold">
+            {brief.title || 'Untitled brief'}
+            {brief.version > 1 && (
+              <span className="ml-2 text-sm font-semibold text-blue-600 align-middle">v{brief.version}</span>
+            )}
+          </h2>
         </div>
         <span className={`px-3 py-1 rounded text-sm font-semibold ${statusClass}`}>{statusLabel}</span>
       </div>
@@ -168,7 +174,7 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
         {brief.max_property_age && <span className={chip}>🏠 max {brief.max_property_age} yrs old</span>}
       </div>
 
-      <div className="flex space-x-2 border-b border-gray-200">
+      <div className="flex space-x-2 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
         {!pendingBrief && (
           <>
             <button className={tabClass('properties')} onClick={() => setTab('properties')}>
@@ -197,7 +203,10 @@ export default function BriefPage({ token, briefId, isManager, onBack }) {
       )}
       {activeTab === 'clusters' && <ClustersTab call={call} brief={brief} client={client} isManager={isManager} />}
       {activeTab === 'details' && (
-        <DetailsTab call={call} brief={brief} team={team} isManager={isManager} reload={load} />
+        <>
+          <DetailsTab call={call} brief={brief} team={team} isManager={isManager} reload={load} />
+          <BriefChanges key={brief.version} call={call} briefId={brief.id} version={brief.version} />
+        </>
       )}
     </div>
   );

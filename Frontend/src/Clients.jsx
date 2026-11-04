@@ -44,14 +44,14 @@ function makeCall(token) {
 }
 
 // ==================== CLIENTS LIST ====================
-export default function ClientsPage({ token, isManager }) {
+export default function ClientsPage({ token, isManager, initialOpen }) {
   const [clients, setClients] = useState([]);
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
-  const [directBriefId, setDirectBriefId] = useState(null);
+  const [selectedId, setSelectedId] = useState((initialOpen && initialOpen.clientId) || null);
+  const [directBriefId, setDirectBriefId] = useState((initialOpen && initialOpen.briefId) || null);
   const call = makeCall(token);
 
   const load = async () => {

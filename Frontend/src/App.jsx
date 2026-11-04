@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Menu, Home, Users, TrendingUp, MessageCircle, LogOut } from 'lucide-react';
+import { Menu, Home, Users, TrendingUp, MessageCircle, LogOut, Shield } from 'lucide-react';
 import ClientsPage from './Clients';
 import ClientPortal from './ClientPortal';
 import ChatsPage from './ChatsPage';
@@ -8,6 +8,8 @@ import AllProperties from './AllProperties';
 import TeamPage from './TeamPage';
 import FeesPage from './Fees';
 import FeeStrip from './FeeStrip';
+import AdminPage from './Admin';
+import SearchBox from './SearchBox';
 import ChangePassword from './ChangePassword';
 import NotificationBell from './NotificationBell';
 import { API_URL, makeCall } from './api';
@@ -85,7 +87,8 @@ export default function PrimeAtlasApp() {
     ...(isManager
       ? [
           { id: 'fees', label: 'Fees', icon: PoundIcon },
-          { id: 'team', label: 'Team', icon: Users }
+          { id: 'team', label: 'Team', icon: Users },
+          { id: 'admin', label: 'Admin', icon: Shield }
         ]
       : [])
   ];
@@ -156,10 +159,15 @@ export default function PrimeAtlasApp() {
             </button>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 truncate">{titles[page.name] || ''}</h1>
           </div>
+
+          <div className="hidden md:block flex-1 max-w-md mx-4">
+            <SearchBox call={call} onNavigate={navigate} />
+          </div>
+
           <div className="flex items-center space-x-2 sm:space-x-4">
             <NotificationBell call={call} onNavigate={navigate} isManager={isManager} />
             {user && (
-              <span className="hidden md:inline text-sm text-gray-600">
+              <span className="hidden lg:inline text-sm text-gray-600">
                 {user.name || user.email} · <span className="capitalize">{user.role}</span>
               </span>
             )}
@@ -176,6 +184,11 @@ export default function PrimeAtlasApp() {
           </div>
         </div>
 
+        {/* Phone: search sits under the header */}
+        <div className="md:hidden bg-white border-b border-gray-200 px-3 py-2">
+          <SearchBox call={call} onNavigate={navigate} />
+        </div>
+
         <div className="flex-1 overflow-auto p-3 sm:p-6">
           {page.name === 'dashboard' && (
             <div key={page.n}>
@@ -183,13 +196,16 @@ export default function PrimeAtlasApp() {
               <Dashboard token={token} user={user} isManager={isManager} onNavigate={navigate} />
             </div>
           )}
-          {page.name === 'clients' && <ClientsPage key={page.n} token={token} isManager={isManager} />}
+          {page.name === 'clients' && (
+            <ClientsPage key={page.n} token={token} isManager={isManager} initialOpen={page.params} />
+          )}
           {page.name === 'properties' && (
             <AllProperties key={page.n} token={token} isManager={isManager} initialFilters={page.params} />
           )}
           {page.name === 'chats' && <ChatsPage key={page.n} token={token} />}
           {page.name === 'fees' && isManager && <FeesPage key={page.n} token={token} />}
           {page.name === 'team' && isManager && <TeamPage key={page.n} token={token} />}
+          {page.name === 'admin' && isManager && <AdminPage key={page.n} token={token} />}
         </div>
       </div>
     </div>

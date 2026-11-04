@@ -67,7 +67,7 @@ export default function AllProperties({ token, isManager, initialFilters }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenId] = useState((initialFilters && initialFilters.propertyId) || null);
   const [showAdd, setShowAdd] = useState(false);
   const [assigning, setAssigning] = useState(null);
   const [notice, setNotice] = useState('');

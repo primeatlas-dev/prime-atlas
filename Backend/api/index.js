@@ -13,6 +13,9 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: process.env.FRONTEND_URL || false }));
 app.use(express.json({ limit: '100kb' }));
 
+// Records sensitive actions (who did what) in the audit log
+app.use('/api', require('../middleware/auditTrail'));
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
@@ -46,15 +49,20 @@ app.use(
 
 // Staff routes (managers and employees). Client accounts are blocked here,
 // and employees are blocked from briefs that are still awaiting approval.
-// Order matters: assign.js comes before allProperties.js so its version of "assign" is used.
+// Order matters: briefEdit.js comes before clients.js so its versioned brief edit is the one used,
+// and assign.js comes before allProperties.js so its version of "assign" is used.
 app.use(
   '/api',
   requireAuth,
   requireStaff,
   blockPendingForEmployees,
   require('../routes/overview'),
+  require('../routes/search'),
+  require('../routes/audit'),
+  require('../routes/exportCsv'),
   require('../routes/clientLogins'),
   require('../routes/clientData'),
+  require('../routes/briefEdit'),
   require('../routes/clients'),
   require('../routes/feeSummary'),
   require('../routes/fees'),
