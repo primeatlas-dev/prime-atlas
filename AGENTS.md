@@ -140,3 +140,22 @@ Use three kinds of login: manager, employee and client. Private windows in the s
 - Fee alerts: `GET /api/fees/summary` (manager only) feeds the bell and a dashboard strip.
 - `Backend/scripts/backup.js` saves all tables to the gitignored `backups/` folder. It does not include Storage files.
 - Employees can't reset their own password if they forget it; the manager resets it in Team.
+
+## Update: search, brief versions, audit log and exports
+
+- **Search** (`routes/search.js`, `Frontend/src/SearchBox.jsx`): staff only. **Employees find a client by number only, never by name, email or company**, so search cannot reveal who a client number belongs to. Employees never get pending briefs in results. It reads the newest 1000 rows of each type.
+- **Brief versions:** `routes/briefEdit.js` is mounted before `routes/clients.js`, so its `PATCH /briefs/:id` is the live one (the older PATCH in `clients.js` is dead code). After approval, changing a requirement field bumps `briefs.version` and records the old and new values in `brief_changes`. Notes, due date, commission, status and assignment are not part of the history. Pending briefs never create versions.
+- **Audit log:** `middleware/auditTrail.js` wraps `res.json` and saves an `audit_log` row **before** replying, because Vercel can freeze a function once it has replied. It never records passwords. The manager reads it on the Admin page (`routes/audit.js`).
+- **CSV export** (`routes/exportCsv.js`, manager only): cells starting with `=`, `+`, `-` or `@` are stored as text to block spreadsheet formula injection. Each export is audit logged.
+- `Frontend/vercel.json` sets security headers on the website (no content type sniffing, no framing, strict referrer policy, restricted browser permissions). A full Content-Security-Policy is not set yet.
+- Not built yet: email-based "forgot password", two-factor login for the manager, a Content-Security-Policy, per-route rate limits beyond login.
+
+## Update: two-factor login, email password reset, final hardening
+
+- **Two-factor login (staff only):** the secret is encrypted with `TWO_FACTOR_KEY` (AES-256-GCM) in `users.totp_secret_enc`. **Never change or remove `TWO_FACTOR_KEY`**, or every account with two-factor on is locked out until reset in SQL. `lib/twoFactor.js` holds the TOTP code (no external library). A code can only be used once (`totp_last_step` is claimed atomically). Recovery codes are stored as SHA-256 hashes in `two_factor_recovery`.
+- **Login is now two steps** (`routes/auth.js`). After a correct password, an account with two-factor gets only a 5-minute ticket (a JWT with `purpose: '2fa'`), which `middleware/auth.js` **rejects as a login**. Failed second-step attempts count towards the same lockout as failed passwords.
+- Enabling or disabling two-factor, and changing a password, ends every other session (`tokens_valid_after`). Managers reset an employee's two-factor login from the Team page. A manager who loses their device uses a recovery code, or SQL.
+- **Forgot password:** `POST /auth/forgot` always gives the same answer, limits requests per email (3/hour) and per address (10/hour), and emails a single-use link valid for 30 minutes through Resend (`lib/mail.js`, needs `RESEND_API_KEY` and `MAIL_FROM`). Only a SHA-256 hash of the token is stored. The link uses `#reset=` so the token never reaches a server log. The reset does not bypass two-factor.
+- Dead code removed: the old `PATCH /briefs/:id` in `routes/clients.js` and the old assign route in `routes/allProperties.js`. `routes/briefEdit.js` and `routes/assign.js` are the only versions.
+- `Frontend/vercel.json` carries a Content-Security-Policy in **report-only** mode. Switch it to enforcing only after a clean test. When a custom domain is added, update `connect-src` (and the Supabase host if it changes). `Frontend/.env.production` sets `INLINE_RUNTIME_CHUNK=false` so the policy can use `script-src 'self'`.
+- Known tradeoffs: the login token lives in browser storage (a Content-Security-Policy and short sessions reduce the risk); the forgot-password response time differs slightly when an account exists.

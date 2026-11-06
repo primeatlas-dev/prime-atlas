@@ -13,10 +13,13 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
+  // The short "second step" ticket given after a correct password is NOT a login
+  if (payload.purpose) return res.status(401).json({ error: 'Invalid or expired token' });
+
   // Check the database on every request, so deactivated users are locked out immediately
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, name, role, active, tokens_valid_after')
+    .select('id, email, name, role, active, tokens_valid_after, totp_enabled')
     .eq('id', payload.id)
     .single();
 

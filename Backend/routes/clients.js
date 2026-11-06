@@ -13,8 +13,6 @@ const BRIEF_FIELDS = [
   'other_mandatory_criteria', 'must_haves', 'must_avoids', 'rejected_properties',
   'liked_missed_properties'
 ];
-const MANAGER_BRIEF_FIELDS = ['commission_amount', 'fee_status'];
-const OPEN_STATUSES = ['active', 'on_hold', 'closed'];
 
 function pick(body, fields) {
   const out = {};
@@ -144,7 +142,8 @@ router.get('/clients/:id', async (req, res) => {
 });
 
 // ---------- BRIEFS (MANAGER) ----------
-// A brief the manager creates is already approved, so it starts active
+// A brief the manager creates is already approved, so it starts active.
+// Editing a brief is handled in briefEdit.js.
 router.post('/briefs', requireManager, async (req, res) => {
   if (!req.body.client_id) return res.status(400).json({ error: 'client_id is required' });
 
@@ -175,56 +174,6 @@ router.post('/briefs', requireManager, async (req, res) => {
     .single();
   if (error) return fail(res, error);
   res.status(201).json(data);
-});
-
-router.patch('/briefs/:id', requireManager, async (req, res) => {
-  const { data: current } = await supabase
-    .from('briefs')
-    .select('id, status')
-    .eq('id', req.params.id)
-    .single();
-  if (!current) return res.status(404).json({ error: 'Brief not found' });
-  const pending = current.status === 'pending_approval';
-
-  const fields = pick(req.body, [...BRIEF_FIELDS, ...MANAGER_BRIEF_FIELDS]);
-
-  // A pending brief can only change through Approve or Decline. Nothing sets a brief back to pending.
-  if (req.body.status !== undefined && req.body.status !== '' && !pending) {
-    if (!OPEN_STATUSES.includes(req.body.status)) {
-      return res.status(400).json({ error: 'Unknown status' });
-    }
-    fields.status = req.body.status;
-  }
-
-  if (req.body.assigned_to !== undefined) {
-    const id = req.body.assigned_to === '' ? null : req.body.assigned_to;
-    if (id && pending) {
-      return res.status(400).json({ error: 'Approve the brief before assigning it to an employee' });
-    }
-    if (id) {
-      const { data: person } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', id)
-        .eq('role', 'employee')
-        .eq('active', true)
-        .single();
-      if (!person) return res.status(400).json({ error: 'Choose an active employee' });
-    }
-    fields.assigned_to = id;
-  }
-
-  if (fields.fee_status === 'paid') fields.fee_paid_at = new Date().toISOString();
-  if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'Nothing to change' });
-
-  const { data, error } = await supabase
-    .from('briefs')
-    .update(fields)
-    .eq('id', current.id)
-    .select()
-    .single();
-  if (error) return fail(res, error);
-  res.json(data);
 });
 
 router.post('/briefs/:id/approve', requireManager, async (req, res) => {

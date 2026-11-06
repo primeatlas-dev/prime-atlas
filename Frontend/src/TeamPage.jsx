@@ -57,6 +57,18 @@ export default function TeamPage({ token }) {
     }
   };
 
+  const reset2fa = async (member) => {
+    if (!window.confirm(`Turn off two-factor login for ${member.name}? They will be signed out everywhere.`)) return;
+    setMessage('');
+    try {
+      await call(`/team/${member.id}`, { method: 'PATCH', body: JSON.stringify({ reset_2fa: true }) });
+      setMessage(`Two-factor login was reset for ${member.name}. They can turn it on again from Security.`);
+      load();
+    } catch (err) {
+      setMessage(err.message);
+    }
+  };
+
   const startReset = (member) => {
     setResetFor(member);
     setNewPassword(randomPassword());
@@ -147,6 +159,7 @@ export default function TeamPage({ token }) {
                 <th className="px-4 py-3 text-left text-sm font-semibold">Email</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">Two-factor</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold">Actions</th>
               </tr>
             </thead>
@@ -161,15 +174,25 @@ export default function TeamPage({ token }) {
                       {member.active ? 'Active' : 'Deactivated'}
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-sm">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${member.totp_enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                      {member.totp_enabled ? 'On' : 'Off'}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
                     {member.role !== 'manager' && (
                       <>
                         <button onClick={() => toggleActive(member)} className="text-blue-600 hover:text-blue-800 font-semibold mr-4">
                           {member.active ? 'Deactivate' : 'Reactivate'}
                         </button>
-                        <button onClick={() => startReset(member)} className="text-blue-600 hover:text-blue-800 font-semibold">
+                        <button onClick={() => startReset(member)} className="text-blue-600 hover:text-blue-800 font-semibold mr-4">
                           Reset password
                         </button>
+                        {member.totp_enabled && (
+                          <button onClick={() => reset2fa(member)} className="text-blue-600 hover:text-blue-800 font-semibold">
+                            Reset 2FA
+                          </button>
+                        )}
                       </>
                     )}
                   </td>

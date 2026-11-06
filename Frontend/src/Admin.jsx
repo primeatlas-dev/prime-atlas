@@ -20,7 +20,11 @@ const ACTIONS = {
   seller_confirmed: ['Confirmed with the seller', 'bg-blue-100 text-blue-800'],
   seller_unconfirmed: ['Removed a seller confirmation', 'bg-gray-100 text-gray-800'],
   data_exported: ['Exported data to CSV', 'bg-yellow-100 text-yellow-800'],
-  login_locked: ['Login locked after too many failed attempts', 'bg-red-100 text-red-800']
+  login_locked: ['Login locked after too many failed attempts', 'bg-red-100 text-red-800'],
+  password_reset_by_email: ['Password reset using an email link', 'bg-yellow-100 text-yellow-800'],
+  two_factor_enabled: ['Turned on two-factor login', 'bg-green-100 text-green-800'],
+  two_factor_disabled: ['Turned off two-factor login', 'bg-red-100 text-red-800'],
+  employee_2fa_reset: ["Reset an employee's two-factor login", 'bg-yellow-100 text-yellow-800']
 };
 
 function Box({ children, className = '' }) {

@@ -10,8 +10,10 @@ import FeesPage from './Fees';
 import FeeStrip from './FeeStrip';
 import AdminPage from './Admin';
 import SearchBox from './SearchBox';
+import Security from './Security';
 import ChangePassword from './ChangePassword';
 import NotificationBell from './NotificationBell';
+import { AuthShell, ForgotPassword, ResetPassword, TwoFactorStep } from './AuthPages';
 import { API_URL, makeCall } from './api';
 
 function readUser() {
@@ -20,10 +22,6 @@ function readUser() {
   } catch (e) {
     return null;
   }
-}
-
-function Card({ children, className = '' }) {
-  return <div className={`bg-white rounded-lg shadow p-6 ${className}`}>{children}</div>;
 }
 
 const PoundIcon = ({ size = 20 }) => (
@@ -41,6 +39,11 @@ export default function PrimeAtlasApp() {
   const [page, setPage] = useState({ name: 'dashboard', params: null, n: 0 });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [resetToken, setResetToken] = useState(() => {
+    const m = window.location.hash.match(/^#reset=([0-9a-f]{64})$/);
+    return m ? m[1] : null;
+  });
   const call = useMemo(() => makeCall(token), [token]);
 
   const handleLogout = () => {
@@ -64,6 +67,19 @@ export default function PrimeAtlasApp() {
         if (/not logged in|invalid or expired|not active|log in again/i.test(e.message)) handleLogout();
       });
   }, [call]);
+
+  // Someone opened a "reset your password" link from their email
+  if (resetToken) {
+    return (
+      <ResetPassword
+        token={resetToken}
+        onDone={() => {
+          window.history.replaceState(null, '', window.location.pathname);
+          setResetToken(null);
+        }}
+      />
+    );
+  }
 
   if (!token) return <LoginPage setToken={setToken} setUser={setUser} />;
 
@@ -123,7 +139,20 @@ export default function PrimeAtlasApp() {
         })}
       </nav>
 
-      {!drawer && (
+      {drawer ? (
+        <div className="p-4 border-t border-blue-700 space-y-2">
+          <button
+            onClick={() => {
+              setMobileOpen(false);
+              setSecurityOpen(true);
+            }}
+            className="w-full px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm text-white"
+          >
+            Security
+          </button>
+          <ChangePassword call={call} light label="Change password" />
+        </div>
+      ) : (
         <div className="p-4 border-t border-blue-700">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -167,11 +196,19 @@ export default function PrimeAtlasApp() {
           <div className="flex items-center space-x-2 sm:space-x-4">
             <NotificationBell call={call} onNavigate={navigate} isManager={isManager} />
             {user && (
-              <span className="hidden lg:inline text-sm text-gray-600">
+              <span className="hidden xl:inline text-sm text-gray-600">
                 {user.name || user.email} · <span className="capitalize">{user.role}</span>
               </span>
             )}
-            <div className="hidden sm:block">
+            <div className="hidden lg:block">
+              <button
+                onClick={() => setSecurityOpen(true)}
+                className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+              >
+                Security
+              </button>
+            </div>
+            <div className="hidden lg:block">
               <ChangePassword call={call} label="Password" />
             </div>
             <button
@@ -192,6 +229,17 @@ export default function PrimeAtlasApp() {
         <div className="flex-1 overflow-auto p-3 sm:p-6">
           {page.name === 'dashboard' && (
             <div key={page.n}>
+              {isManager && user && user.totp_enabled === false && (
+                <div className="mb-6 bg-red-50 border border-red-200 text-red-900 rounded-lg p-4 flex flex-wrap items-center justify-between gap-2">
+                  <p>🔐 Your account controls everything in Prime Atlas. Turn on two-factor login to protect it.</p>
+                  <button
+                    onClick={() => setSecurityOpen(true)}
+                    className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700"
+                  >
+                    Turn on
+                  </button>
+                </div>
+              )}
               {isManager && <FeeStrip call={call} onNavigate={navigate} />}
               <Dashboard token={token} user={user} isManager={isManager} onNavigate={navigate} />
             </div>
@@ -208,15 +256,26 @@ export default function PrimeAtlasApp() {
           {page.name === 'admin' && isManager && <AdminPage key={page.n} token={token} />}
         </div>
       </div>
+
+      <Security call={call} open={securityOpen} onClose={() => setSecurityOpen(false)} />
     </div>
   );
 }
 
 // ==================== LOGIN PAGE ====================
 function LoginPage({ setToken, setUser }) {
+  const [mode, setMode] = useState('login'); // login | 2fa | forgot
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [challenge, setChallenge] = useState('');
   const [error, setError] = useState('');
+
+  const finish = (data) => {
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+    setUser(data.user);
+    setToken(data.token);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -228,11 +287,12 @@ function LoginPage({ setToken, setUser }) {
         body: JSON.stringify({ email, password })
       });
       const data = await res.json();
-      if (data.token) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        setUser(data.user);
-        setToken(data.token);
+      if (data.needs_2fa) {
+        setChallenge(data.challenge);
+        setPassword('');
+        setMode('2fa');
+      } else if (data.token) {
+        finish(data);
       } else {
         setError(data.error || 'Login failed');
       }
@@ -241,39 +301,58 @@ function LoginPage({ setToken, setUser }) {
     }
   };
 
+  if (mode === 'forgot') return <ForgotPassword defaultEmail={email} onBack={() => setMode('login')} />;
+  if (mode === '2fa') {
+    return (
+      <TwoFactorStep
+        challenge={challenge}
+        onSuccess={finish}
+        onBack={() => {
+          setChallenge('');
+          setMode('login');
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-800 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <h1 className="text-3xl font-bold mb-6 text-center">Prime Atlas</h1>
+    <AuthShell>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          required
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          required
+        />
+        {error && <p className="text-red-600 text-sm">{error}</p>}
+        <button
+          type="submit"
+          className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+        >
+          Login
+        </button>
+      </form>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            required
-          />
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          <button
-            type="submit"
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
-          >
-            Login
-          </button>
-        </form>
-
-        <p className="text-center text-gray-500 text-sm mt-4">Accounts are created by your manager.</p>
-      </Card>
-    </div>
+      <div className="text-center mt-4 space-y-1">
+        <button
+          type="button"
+          onClick={() => setMode('forgot')}
+          className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+        >
+          Forgot your password?
+        </button>
+        <p className="text-gray-500 text-sm">Accounts are created by your manager.</p>
+      </div>
+    </AuthShell>
   );
 }

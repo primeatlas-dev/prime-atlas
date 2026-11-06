@@ -13,7 +13,7 @@ function describeRequest(method, path, req, status) {
   const body = req.body || {};
   let m;
 
-  if (status === 429 && method === 'POST' && path === '/auth/login') {
+  if (status === 429 && method === 'POST' && (path === '/auth/login' || path === '/auth/2fa')) {
     return { action: 'login_locked', detail: String(body.email || '').slice(0, 100) };
   }
   if (status >= 400) return null;

@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const supabase = require('../lib/supabase');
+const { logAudit } = require('../lib/audit');
 const { requireManager } = require('../middleware/auth');
 
 const router = express.Router();
@@ -8,12 +9,17 @@ router.use(requireManager);
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const fail = (res, error) => res.status(500).json({ error: error.message });
+const clientIp = (req) =>
+  String(req.headers['x-forwarded-for'] || (req.socket && req.socket.remoteAddress) || '')
+    .split(',')[0]
+    .trim()
+    .slice(0, 64);
 
 // List the manager and employees (client logins are not shown here)
 router.get('/', async (req, res) => {
   const { data, error } = await supabase
     .from('users')
-    .select('id, name, email, role, active, created_at')
+    .select('id, name, email, role, active, created_at, totp_enabled')
     .in('role', ['manager', 'employee'])
     .order('created_at');
   if (error) return fail(res, error);
@@ -47,7 +53,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(data);
 });
 
-// Switch an employee on or off, or reset their password
+// Switch an employee on or off, reset their password, or reset their two-factor login
 router.patch('/:id', async (req, res) => {
   if (req.params.id === req.user.id) {
     return res.status(400).json({ error: "You can't change your own account here" });
@@ -61,6 +67,7 @@ router.patch('/:id', async (req, res) => {
     return res.status(404).json({ error: 'Employee not found' });
   }
 
+  const now = new Date().toISOString();
   const updates = {};
   if (req.body.active !== undefined) updates.active = !!req.body.active;
   if (req.body.password !== undefined) {
@@ -69,7 +76,14 @@ router.patch('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Password must be 8 to 100 characters' });
     }
     updates.password_hash = await bcrypt.hash(password, 10);
-    updates.tokens_valid_after = new Date().toISOString();
+    updates.tokens_valid_after = now;
+  }
+  const resetTwoFactor = req.body.reset_2fa === true;
+  if (resetTwoFactor) {
+    updates.totp_enabled = false;
+    updates.totp_secret_enc = null;
+    updates.totp_last_step = null;
+    updates.tokens_valid_after = now;
   }
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Nothing to change' });
 
@@ -80,6 +94,17 @@ router.patch('/:id', async (req, res) => {
     .select('id, name, email, role, active')
     .single();
   if (error) return fail(res, error);
+
+  if (resetTwoFactor) {
+    await supabase.from('two_factor_recovery').delete().eq('user_id', target.id);
+    await logAudit({
+      actor_id: req.user.id,
+      action: 'employee_2fa_reset',
+      target_type: 'employee',
+      target_id: target.id,
+      ip: clientIp(req)
+    });
+  }
   res.json(data);
 });
 
