@@ -28,7 +28,8 @@ const DETAIL_COLUMNS = [
   'adjacent_main_road', 'easements', 'noise_level', 'social_housing_pct',
   'social_housing_nearby', 'other_findings_found', 'other_findings',
   'nearest_bus_stop', 'airport_distance', 'railway_distance', 'schools',
-  'hospitals', 'shopping_centers', 'client_decision', 'client_comment', 'viewed_at'
+  'hospitals', 'shopping_centers', 'client_decision', 'client_comment', 'viewed_at',
+  'client_confirmed_at'
 ].join(', ');
 
 // What a client is allowed to send when submitting a new search. Anything else is ignored.
@@ -220,6 +221,18 @@ router.get('/properties/:id', async (req, res) => {
   const found = await loadOwnProperty(client.id, req.params.id, DETAIL_COLUMNS);
   if (!found) return res.status(404).json({ error: 'Property not found' });
   const { property, brief } = found;
+
+  // The selling agent's contact details stay hidden until the client has confirmed the property.
+  // This depends on the saved confirmation time, which only the client's own "Confirm" button
+  // or the manager recording it can set (both are logged).
+  const revealed = !!property.client_confirmed_at;
+  delete property.client_confirmed_at;
+  if (!revealed) {
+    delete property.selling_agent_name;
+    delete property.selling_agent_phone;
+    delete property.selling_agent_email;
+  }
+  property.contact_hidden = !revealed;
 
   if (!property.viewed_at) {
     const now = new Date().toISOString();

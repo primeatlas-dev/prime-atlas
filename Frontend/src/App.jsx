@@ -118,7 +118,11 @@ export default function PrimeAtlasApp() {
   const sidebarContent = (expanded, drawer) => (
     <>
       <div className="p-4 border-b border-blue-700 flex items-center justify-center">
-        <div className="text-2xl font-bold">{expanded ? 'Prime Atlas' : 'PA'}</div>
+        {expanded ? (
+          <img src="/logo-wordmark-dark.png" alt="Prime Atlas" className="w-52" />
+        ) : (
+          <img src="/logo-mark.png" alt="Prime Atlas" className="w-10" />
+        )}>
       </div>
 
       <nav className="flex-1 p-4 space-y-2">

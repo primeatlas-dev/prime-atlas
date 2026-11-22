@@ -14,6 +14,8 @@ function eventText(e) {
     case 'rejected': return ['❌', 'Rejected'];
     case 'review': return ['🔁', e.detail || 'Sent back to review'];
     case 'assigned': return ['📌', e.detail || 'Assigned to a brief'];
+    case 'client_confirmation_recorded': return ['✍️', 'Client confirmation recorded by the manager'];
+    case 'client_confirmation_removed': return ['↩️', 'Client confirmation taken back by the manager'];
     case 'seller_confirmed': return ['🤝', 'Confirmed with the seller'];
     case 'seller_unconfirmed': return ['↩️', 'Seller confirmation removed'];
     case 'client_viewed': return ['👁️', 'Client viewed the property'];

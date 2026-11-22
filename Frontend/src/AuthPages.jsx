@@ -18,7 +18,7 @@ export function AuthShell({ children }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-800 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow p-6 w-full max-w-md text-gray-900">
-        <h1 className="text-3xl font-bold mb-6 text-center">Prime Atlas</h1>
+        <img src="/logo-light.png" alt="Prime Atlas" className="mx-auto mb-6 w-72 max-w-full" />
         {children}
       </div>
     </div>

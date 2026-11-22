@@ -4,7 +4,7 @@ const supabase = require('../lib/supabase');
 const { BUCKET, signPaths } = require('../lib/media');
 const { scoreProperty } = require('../lib/matchScore');
 const { logActivity, activityFeed } = require('../lib/activity');
-
+const { syncFee } = require('../lib/fees');
 const router = express.Router();
 
 const EDITABLE_FIELDS = [
@@ -138,6 +138,20 @@ router.patch('/properties/:id', async (req, res) => {
     isManager(req) ? [...EDITABLE_FIELDS, ...MANAGER_FIELDS] : EDITABLE_FIELDS
   );
   if (fields.client_decision === null) delete fields.client_decision;
+  
+  // A confirmation always leaves a record. When the manager records "confirmed", the time is saved
+  // too, and taking it back resets the deal. (The client's own confirmation is set in the portal.)
+  let confirmationEvent = null;
+  if (fields.client_decision && fields.client_decision !== property.client_decision) {
+    if (fields.client_decision === 'confirmed') {
+      fields.client_confirmed_at = new Date().toISOString();
+      confirmationEvent = 'client_confirmation_recorded';
+    } else if (property.client_decision === 'confirmed') {
+      fields.client_confirmed_at = null;
+      fields.seller_confirmed_at = null;
+      confirmationEvent = 'client_confirmation_removed';
+    }
+  }
   if (fields.client_decision && fields.client_decision !== property.client_decision) {
     fields.client_decision_at = new Date().toISOString();
   }
@@ -149,7 +163,7 @@ router.patch('/properties/:id', async (req, res) => {
     return res.status(400).json({ error: 'Nothing to change' });
   }
 
-  const skip = ['client_decision_at', 'approval_status'];
+  const skip = ['client_decision_at', 'approval_status', 'client_confirmed_at', 'seller_confirmed_at'];
   const changed = Object.keys(fields).filter(
     (k) => !skip.includes(k) && String(property[k] ?? '') !== String(fields[k] ?? '')
   );
@@ -165,6 +179,15 @@ router.patch('/properties/:id', async (req, res) => {
   if (changed.length) {
     const list = changed.slice(0, 8).map(humanise).join(', ');
     await logActivity(property.id, req.user.id, 'edited', changed.length > 8 ? `${list} …` : list);
+  }
+  if (confirmationEvent) {
+    await logActivity(
+      property.id,
+      req.user.id,
+      confirmationEvent,
+      confirmationEvent === 'client_confirmation_recorded' ? 'Recorded by the manager' : 'Taken back by the manager'
+    );
+    await syncFee(property.brief_id);
   }
   if (backToReview) {
     await logActivity(property.id, req.user.id, 'review', 'Fixed and sent back for review');

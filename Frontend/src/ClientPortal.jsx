@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SECTIONS, AGENT_FIELDS, FieldView, gbp } from './PropertyPage';
 import ChatPanel from './ChatPanel';
+import LockedAgent from './LockedAgent';
 import ChangePassword from './ChangePassword';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -116,7 +117,7 @@ export default function ClientPortal({ token, user, onLogout }) {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-gradient-to-r from-blue-900 to-blue-800 text-white px-6 py-4 flex justify-between items-center">
         <div className="text-2xl font-bold cursor-pointer" onClick={() => setView({ page: 'briefs' })}>
-          Prime Atlas
+          <img src="/logo-wordmark-dark.png" alt="Prime Atlas" className="w-40 sm:w-56" />
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-blue-100">{user?.name}</span>
@@ -519,7 +520,7 @@ function ClientProperty({ call, propertyId, onBack }) {
   const decide = async (decision) => {
     if (
       decision === 'confirmed' &&
-      !window.confirm('Confirm this property? Our team will then contact the selling agent to move things forward.')
+      !window.confirm('Confirm this property? This is a firm decision and cannot be changed afterwards. The selling agent’s contact details will then be shown to you, and our team will follow up.')
     ) {
       return;
     }
@@ -551,6 +552,14 @@ function ClientProperty({ call, propertyId, onBack }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
+          {p.contact_hidden && (
+            <Box>
+              <p className="font-semibold text-blue-600 mb-2">Selling agent</p>
+              <p className="text-sm text-gray-600">
+                <LockedAgent />
+              </p>
+            </Box>
+          )}
           {agentFields.length > 0 && (
             <Box>
               <p className="font-semibold text-blue-600 mb-4">Selling agent</p>
